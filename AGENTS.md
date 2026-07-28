@@ -16,6 +16,7 @@
 
 - `/etc/asb/argo-singbox.sh`
 - `/etc/asb/bin/sing-box`
+- `/etc/asb/bin/xray`
 - `/etc/asb/bin/cloudflared`
 - `/etc/asb/asb.env`
 - `/etc/asb/nodes.conf`
@@ -45,7 +46,7 @@
 
 - `load_env()` / `save_env()`：读取和原子保存项目环境配置。
 - `ensure_nodes_config()` / `validate_nodes_config()`：创建默认节点并校验动态节点数据。
-- `write_sing_box_config()`：生成并执行 `sing-box check`，保持 `WARP → 节点 SOCKS5 → direct` 路由顺序。
+- `write_sing_box_config()` / `write_xray_config()`：从同一份 `nodes.conf` 生成所选内核配置，并分别执行 `sing-box check` 或 `xray run -test`；两者都必须保持 `WARP → 节点 SOCKS5 → direct` 路由顺序。
 - `write_nginx_config()`：生成本地 WS 反代和 UUID 订阅入口，并执行 `nginx -t`。
 - `write_services()`：只写项目专属 systemd unit；包含 Token 的文件必须仅 root 可读。
 - `generate_nodes()`：从环境配置和 `nodes.conf` 生成全部节点及订阅文件。
@@ -61,6 +62,7 @@
 - 仅支持 Debian/Ubuntu + systemd。
 - 仅支持 amd64 和 arm64。
 - 仅支持固定 Argo Token，不加入临时隧道、Argo JSON 或 Cloudflare API 建隧道。
+- 支持 Sing-box 与 Xray 二选一；Xray 仅适配既有的 VLESS、VMess、Trojan WS + TLS 节点，不加入 Reality、Hysteria2、XHTTP 或其他协议。
 - 默认保留 VLESS、VMess、Trojan 各一个 WS 节点，并允许通过 `asb -c` 动态添加、修改或删除这三种协议的 WS 节点。
 - 允许节点按 inbound tag 与 WS 路径绑定独立 SOCKS5 出站。
 - 允许用户指定目标网址优先通过 Cloudflare 官方 WARP 客户端的本地 SOCKS5 proxy 出站；未命中时仍遵循节点 SOCKS5 或 direct。
@@ -76,7 +78,7 @@
 - 仓库入口必须使用 `argo-singbox.sh`，不要重新创建 `sba.sh`。
 - 管理命令保持为 `asb`。
 - systemd 服务保持为 `asb-sing-box.service` 和 `asb-cloudflared.service`。
-- 核心二进制必须放在 `/etc/asb/bin/`，不得写入或删除 `/usr/local/bin/sing-box`、`/usr/local/bin/cloudflared`。
+- 核心二进制必须放在 `/etc/asb/bin/`，不得写入或删除 `/usr/local/bin/sing-box`、`/usr/local/bin/xray`、`/usr/local/bin/cloudflared`。
 - 新增项目文件优先使用 `argo-singbox` 或 `asb` 前缀，避免与原版 SBA 文件混淆。
 
 ## 安全约束
@@ -90,7 +92,7 @@
 - 卸载只删除本项目私有核心、服务、Nginx 配置、`asb` 链接和节点文件。
 - 核心更新必须先比较版本并请求确认。
 - 下载必须包含连接超时、总超时、重试、GitHub 代理回退和 SHA256 校验。
-- 更新流程必须遵循：下载到临时文件 → 校验可执行性 → `sing-box check` → 备份 → 原子替换 → 重启验证 → 失败回滚。
+- 更新流程必须遵循：下载到临时文件 → SHA256 与可执行性校验 → 所选内核配置检查 → 备份 → 原子替换 → 重启验证 → 失败回滚。
 - 不得在脚本或示例文件中加入固定公共 UUID、Token 或未经项目明确指定的公共域名；当前约定的默认优选入口为 `bestcf.cdn.fiatnorm.us.kg:443`，且必须允许用户覆盖。
 - 不得嵌入公共 WARP WireGuard 私钥、固定 WARP 账户或非官方 WARP 注册凭据；WARP 使用用户 VPS 上安装的 Cloudflare 官方客户端。
 - Argo 域名必须由用户输入；首次安装 UUID 应自动随机生成。
@@ -122,7 +124,7 @@
 - 修改命令、菜单、路径或行为时，同步更新 `README.md`。
 - 修改 `argo-singbox.sh` 后必须同步更新脚本内 `VERSION`、`README.md` 版本记录和 `argo-singbox.sh.sha256`；纯文档修改且脚本字节未变化时不得伪造版本变更。
 - 配置事务的快照必须覆盖环境、节点、运行配置、服务文件和全部派生订阅文件；生成或服务验证失败时必须恢复文件并重新载入环境变量。
-- `validate_environment()` 是生成 sing-box、Nginx 和订阅文件前的共同边界；已有环境文件中的域名、端口、UUID、Token 和 WARP 配置不得绕过校验直接写入运行文件。
+- `validate_environment()` 是生成 Sing-box/Xray、Nginx 和订阅文件前的共同边界；已有环境文件中的内核选择、域名、端口、UUID、Token 和 WARP 配置不得绕过校验直接写入运行文件。
 - 终端状态行显示 IPv6 优选入口时必须保留 `[地址]:端口` 形式；订阅 URL 按 UI 设计稿使用白色下划线，不输出额外逐条分隔线。
 - 不要修改用户已有的无关文件或清理未跟踪的 `sba/` 对照树。
 - 未在真实 VPS 上验证时，不得宣称 systemd、Nginx、Cloudflare 或公网 WS 已端到端通过。
@@ -155,7 +157,8 @@ git diff --check
 
 ```bash
 nginx -t
-/etc/asb/bin/sing-box check -c /etc/asb/sing-box.json
+# Sing-box: /etc/asb/bin/sing-box check -c /etc/asb/sing-box.json
+# Xray: /etc/asb/bin/xray run -test -c /etc/asb/xray.json
 systemctl is-active nginx asb-sing-box asb-cloudflared
 ss -lnt
 journalctl -u asb-sing-box -u asb-cloudflared -n 100 --no-pager

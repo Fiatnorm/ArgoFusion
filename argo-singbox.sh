@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-VERSION="2.12.2"
+VERSION="2.13.0"
 PROJECT_NAME="Argo-Singbox"
 COMMAND_NAME="asb"
 PROJECT_REPO="Fiatnorm/Argo-Singbox"
@@ -11,6 +11,7 @@ WORK_DIR_NAME="${WORK_DIR##*/}"
 LEGACY_WORK_DIR="/etc/sba"
 ENV_FILE="${WORK_DIR}/asb.env"
 SING_BOX_CONFIG="${WORK_DIR}/sing-box.json"
+XRAY_CONFIG="${WORK_DIR}/xray.json"
 NGINX_CONFIG="/etc/nginx/conf.d/argo-singbox.conf"
 LEGACY_NGINX_CONFIG="/etc/nginx/conf.d/sba.conf"
 NODES_FILE="${WORK_DIR}/nodes.txt"
@@ -38,6 +39,7 @@ DEFAULT_SERVER="bestcf.cdn.fiatnorm.us.kg"
 DEFAULT_SERVER_PORT="443"
 DEFAULT_SING_BOX_VERSION="1.13.0-rc.4"
 SING_BOX_FORCE_VERSION_URL="https://raw.githubusercontent.com/fscarmen/sing-box/refs/heads/main/force_version"
+DEFAULT_XRAY_VERSION="26.7.11"
 
 DEFAULT_ORIGIN_PORT=3010
 ORIGIN_PORT="$DEFAULT_ORIGIN_PORT"
@@ -107,7 +109,7 @@ control_panel() {
   printf '%s\n' ' / ___ |/ /  / /_/ / /_/ /___/ / / / / / /_/ / /_/ / /_/ />  <'
   printf '%s\n' '/_/  |_/_/   \__, /\____//____/_/_/ /_/\__, /_.___/\____/_/|_|'
   printf '%s\n' '            /____/                    /____/'
-  printf '\n%s%s%s  %sv%s%s %s· Argo Tunnel · Sing-box Core · WSS Proxy%s\n' \
+  printf '\n%s%s%s  %sv%s%s %s· Argo Tunnel · 可选代理核心 · WSS Proxy%s\n' \
     "$C_BOLD" "$C_BRIGHT_MAGENTA" "$PROJECT_NAME" "$C_BRIGHT_YELLOW" "$VERSION" \
     "$C_RESET" "$C_DIM" "$C_RESET"
   printf '%s' "$C_BRIGHT_CYAN"
@@ -138,8 +140,8 @@ warp_status() {
   fi
 }
 component_versions() {
-  printf '%s v%s · Sing-box %s · Cloudflared %s' "$PROJECT_NAME" "$VERSION" \
-    "$(local_sing_box_version 2>/dev/null || printf '未安装')" \
+  printf '%s v%s · %s %s · Cloudflared %s' "$PROJECT_NAME" "$VERSION" "$(core_label)" \
+    "$(local_core_version 2>/dev/null || printf '未安装')" \
     "$(local_cloudflared_version 2>/dev/null || printf '未安装')"
 }
 section() {
@@ -242,6 +244,7 @@ load_env() {
   WARP_ENABLED="${WARP_ENABLED:-0}"
   WARP_PROXY_PORT="${WARP_PROXY_PORT:-40000}"
   WARP_DOMAINS="${WARP_DOMAINS:-}"
+  CORE="${CORE:-sing-box}"
 }
 
 save_env() {
@@ -260,6 +263,7 @@ save_env() {
     printf 'WARP_ENABLED=%q\n' "$WARP_ENABLED"
     printf 'WARP_PROXY_PORT=%q\n' "$WARP_PROXY_PORT"
     printf 'WARP_DOMAINS=%q\n' "$WARP_DOMAINS"
+    printf 'CORE=%q\n' "$CORE"
   } >"$temp"
   chmod 600 "$temp"
   mv -f "$temp" "$ENV_FILE"
@@ -271,8 +275,34 @@ valid_path() { [[ "$1" =~ ^/[A-Za-z0-9._~-]+$ ]]; }
 valid_port() { [[ "$1" =~ ^[0-9]+$ ]] && ((10#$1 >= 1 && 10#$1 <= 65535)); }
 valid_argo_token() { [[ "$1" =~ ^[A-Za-z0-9._~+/=-]+$ ]]; }
 valid_domain() { [[ "$1" =~ ^([A-Za-z0-9-]+\.)*[A-Za-z0-9-]+$ ]]; }
+valid_core() { [[ "$1" == "sing-box" || "$1" == "xray" ]]; }
+
+core_label() {
+  case "${CORE:-sing-box}" in
+    sing-box) printf 'Sing-box' ;;
+    xray) printf 'Xray' ;;
+    *) printf '未知内核' ;;
+  esac
+}
+
+core_binary() {
+  case "$CORE" in
+    sing-box) printf '%s/sing-box\n' "$BIN_DIR" ;;
+    xray) printf '%s/xray\n' "$BIN_DIR" ;;
+    *) die "不支持的核心：${CORE}" ;;
+  esac
+}
+
+core_config() {
+  case "$CORE" in
+    sing-box) printf '%s\n' "$SING_BOX_CONFIG" ;;
+    xray) printf '%s\n' "$XRAY_CONFIG" ;;
+    *) die "不支持的核心：${CORE}" ;;
+  esac
+}
 
 validate_environment() {
+  valid_core "$CORE" || die "核心类型无效。"
   valid_uuid "$UUID" || die "UUID 格式不正确。"
   valid_argo_token "$ARGO_TOKEN" || die "Argo Token 格式不正确。"
   valid_domain "$ARGO_DOMAIN" || die "Argo 域名格式不正确。"
@@ -365,8 +395,8 @@ validate_nodes_config() {
 
 detect_arch() {
   case "$(uname -m)" in
-    x86_64|amd64) ARCH="amd64" ;;
-    aarch64|arm64) ARCH="arm64" ;;
+    x86_64|amd64) ARCH="amd64"; XRAY_ARCH="64" ;;
+    aarch64|arm64) ARCH="arm64"; XRAY_ARCH="arm64-v8a" ;;
     *) die "仅支持 amd64 和 arm64 架构。" ;;
   esac
 }
@@ -411,7 +441,7 @@ fetch_latest_installer() {
 install_dependencies() {
   command -v apt-get >/dev/null 2>&1 || die "轻量版仅支持使用 apt 的 Debian/Ubuntu。"
   apt-get update
-  DEBIAN_FRONTEND=noninteractive apt-get install -y curl ca-certificates nginx openssl tar qrencode
+  DEBIAN_FRONTEND=noninteractive apt-get install -y curl ca-certificates nginx openssl tar unzip qrencode
 }
 
 install_cloudflare_warp() {
@@ -528,6 +558,13 @@ get_sing_box_version() {
   printf '%s\n' "${result:-$DEFAULT_SING_BOX_VERSION}"
 }
 
+get_xray_version() {
+  local releases version
+  releases="$(curl -fsSL --connect-timeout 5 https://api.github.com/repos/XTLS/Xray-core/releases 2>/dev/null || true)"
+  version="$(sed -n 's/.*"tag_name": *"v\([^" ]*\)".*/\1/p' <<<"$releases" | sort -Vr | head -n1)"
+  printf '%s\n' "${version:-$DEFAULT_XRAY_VERSION}"
+}
+
 get_cloudflared_version() {
   local metadata version
   metadata="$(mktemp)"
@@ -552,6 +589,20 @@ stage_sing_box() {
   rm -rf "$archive" "$temp_dir"
 }
 
+stage_xray() {
+  local version="${1:-}" target="$2" archive temp_dir
+  [[ -n "$version" ]] || version="$(get_xray_version)"
+  [[ -n "$version" ]] || die "无法确定 Xray 版本。"
+  archive="$(mktemp --suffix=.zip)"
+  download "https://github.com/XTLS/Xray-core/releases/download/v${version}/Xray-linux-${XRAY_ARCH}.zip" "$archive"
+  verify_github_asset "$archive" "XTLS/Xray-core" "tags/v${version}" "Xray-linux-${XRAY_ARCH}.zip"
+  temp_dir="$(mktemp -d)"
+  unzip -qo "$archive" xray -d "$temp_dir"
+  install -m 755 "$temp_dir/xray" "$target"
+  "$target" version >/dev/null
+  rm -rf "$archive" "$temp_dir"
+}
+
 stage_cloudflared() {
   local target="$1" suffix
   [[ "$ARCH" == "amd64" ]] && suffix="amd64" || suffix="arm64"
@@ -563,6 +614,44 @@ stage_cloudflared() {
 
 local_sing_box_version() {
   "$BIN_DIR/sing-box" version 2>/dev/null | awk '/version/{print $NF; exit}'
+}
+
+local_xray_version() {
+  "$BIN_DIR/xray" version 2>/dev/null | awk 'NR == 1 {print $2; exit}'
+}
+
+local_core_version() {
+  case "$CORE" in
+    sing-box) local_sing_box_version ;;
+    xray) local_xray_version ;;
+    *) die "不支持的核心：${CORE}" ;;
+  esac
+}
+
+get_core_version() {
+  case "$CORE" in
+    sing-box) get_sing_box_version ;;
+    xray) get_xray_version ;;
+    *) die "不支持的核心：${CORE}" ;;
+  esac
+}
+
+stage_core() {
+  local version="$1" target="$2"
+  case "$CORE" in
+    sing-box) stage_sing_box "$version" "$target" ;;
+    xray) stage_xray "$version" "$target" ;;
+    *) die "不支持的核心：${CORE}" ;;
+  esac
+}
+
+core_check() {
+  local binary="${1:-$(core_binary)}" config="${2:-$(core_config)}"
+  case "$CORE" in
+    sing-box) "$binary" check -c "$config" ;;
+    xray) "$binary" run -test -c "$config" ;;
+    *) die "不支持的核心：${CORE}" ;;
+  esac
 }
 
 local_cloudflared_version() {
@@ -614,7 +703,68 @@ write_sing_box_config() {
   done <"$NODES_CONFIG"
   printf '],"final":"direct"}}\n' >>"$SING_BOX_CONFIG"
   chmod 600 "$SING_BOX_CONFIG"
-  "$BIN_DIR/sing-box" check -c "$SING_BOX_CONFIG"
+  core_check "$BIN_DIR/sing-box" "$SING_BOX_CONFIG"
+}
+
+write_xray_config() {
+  local tag protocol path port socks first=1 values host proxy_port username password
+  ensure_nodes_config
+  validate_environment
+  validate_nodes_config
+  printf '{"log":{"loglevel":"warning"},"inbounds":[\n' >"$XRAY_CONFIG"
+  while IFS='|' read -r tag protocol path port socks; do
+    ((first)) || printf ',\n' >>"$XRAY_CONFIG"; first=0
+    printf '{"protocol":"%s","tag":"%s","listen":"127.0.0.1","port":%s,' "$protocol" "$tag" "$port" >>"$XRAY_CONFIG"
+    case "$protocol" in
+      trojan) printf '"settings":{"clients":[{"password":"%s"}]},' "$UUID" >>"$XRAY_CONFIG" ;;
+      vmess) printf '"settings":{"clients":[{"id":"%s","alterId":0}]},' "$UUID" >>"$XRAY_CONFIG" ;;
+      vless) printf '"settings":{"clients":[{"id":"%s","flow":""}],"decryption":"none"},' "$UUID" >>"$XRAY_CONFIG" ;;
+    esac
+    printf '"streamSettings":{"network":"ws","security":"none","wsSettings":{"path":"%s"}},' "$path" >>"$XRAY_CONFIG"
+    printf '"sniffing":{"enabled":true,"destOverride":["http","tls","quic"],"metadataOnly":false}}' >>"$XRAY_CONFIG"
+  done <"$NODES_CONFIG"
+  printf '\n],"outbounds":[{"protocol":"freedom","tag":"direct"}' >>"$XRAY_CONFIG"
+  if [[ "$WARP_ENABLED" == "1" ]]; then
+    valid_port "$WARP_PROXY_PORT" || die "WARP 本地代理端口无效。"
+    WARP_DOMAINS="$(normalize_warp_domains "$WARP_DOMAINS")"
+    printf ',{"protocol":"socks","tag":"warp","settings":{"servers":[{"address":"127.0.0.1","port":%s}]}}' \
+      "$WARP_PROXY_PORT" >>"$XRAY_CONFIG"
+  fi
+  while IFS='|' read -r tag protocol path port socks; do
+    [[ -n "$socks" ]] || continue
+    values="$(parse_socks5 "$socks")"; IFS='|' read -r host proxy_port username password <<<"$values"
+    printf ',{"protocol":"socks","tag":"socks-%s","settings":{"servers":[{"address":"%s","port":%s,"users":[{"user":"%s","pass":"%s"}]}]}}' \
+      "$tag" "$host" "$proxy_port" "$username" "$password" >>"$XRAY_CONFIG"
+  done <"$NODES_CONFIG"
+  printf '],"routing":{"domainStrategy":"AsIs","rules":[' >>"$XRAY_CONFIG"; first=1
+  if [[ "$WARP_ENABLED" == "1" ]]; then
+    printf '{"type":"field","domain":[' >>"$XRAY_CONFIG"
+    local domain first_domain=1 old_ifs="$IFS"
+    IFS=','
+    for domain in $WARP_DOMAINS; do
+      ((first_domain)) || printf ',' >>"$XRAY_CONFIG"; first_domain=0
+      printf '"domain:%s"' "$domain" >>"$XRAY_CONFIG"
+    done
+    IFS="$old_ifs"
+    printf '],"outboundTag":"warp"}' >>"$XRAY_CONFIG"
+    first=0
+  fi
+  while IFS='|' read -r tag protocol path port socks; do
+    [[ -n "$socks" ]] || continue
+    ((first)) || printf ',' >>"$XRAY_CONFIG"; first=0
+    printf '{"type":"field","inboundTag":["%s"],"outboundTag":"socks-%s"}' "$tag" "$tag" >>"$XRAY_CONFIG"
+  done <"$NODES_CONFIG"
+  printf ']}}\n' >>"$XRAY_CONFIG"
+  chmod 600 "$XRAY_CONFIG"
+  core_check "$BIN_DIR/xray" "$XRAY_CONFIG"
+}
+
+write_core_config() {
+  case "$CORE" in
+    sing-box) write_sing_box_config ;;
+    xray) write_xray_config ;;
+    *) die "不支持的核心：${CORE}" ;;
+  esac
 }
 
 write_nginx_config() {
@@ -710,9 +860,13 @@ EOF
 }
 
 write_services() {
+  local binary config label
+  binary="$(core_binary)"
+  config="$(core_config)"
+  label="$(core_label)"
   cat >"/etc/systemd/system/${SING_SERVICE}.service" <<EOF
 [Unit]
-Description=Argo-Singbox sing-box
+Description=Argo-Singbox ${label} core
 After=network-online.target
 Wants=network-online.target
 
@@ -720,7 +874,7 @@ Wants=network-online.target
 Type=simple
 User=root
 WorkingDirectory=${WORK_DIR}
-ExecStart=${BIN_DIR}/sing-box run -c ${SING_BOX_CONFIG}
+ExecStart=${binary} run -c ${config}
 ExecReload=/bin/kill -HUP \$MAINPID
 Restart=on-failure
 RestartSec=10
@@ -752,7 +906,8 @@ EOF
 }
 
 generate_nodes() {
-  local old_umask vmess_json vmess_link tag protocol path port socks encoded_path first uri_server auto_url
+  local old_umask vmess_json vmess_link tag protocol path port socks encoded_path vmess_path first uri_server auto_url
+  local clash_early_data sing_box_early_data
   ensure_nodes_config
   validate_environment
   validate_nodes_config
@@ -760,16 +915,27 @@ generate_nodes() {
   umask 077
   uri_server="$SERVER"
   [[ "$uri_server" == *:* ]] && uri_server="[${uri_server}]"
+  clash_early_data=""
+  sing_box_early_data=""
+  if [[ "$CORE" == "sing-box" ]]; then
+    clash_early_data=', max-early-data: 2560, early-data-header-name: Sec-WebSocket-Protocol'
+    sing_box_early_data=',"max_early_data":2560,"early_data_header_name":"Sec-WebSocket-Protocol"'
+  fi
   : >"$NODES_FILE"
   while IFS='|' read -r tag protocol path port socks; do
-    encoded_path="%2F${path#/}%3Fed%3D2560"
+    encoded_path="%2F${path#/}"
+    vmess_path="$path"
+    if [[ "$CORE" == "sing-box" ]]; then
+      encoded_path+="%3Fed%3D2560"
+      vmess_path+="?ed=2560"
+    fi
     case "$protocol" in
       vless) printf 'vless://%s@%s:%s?encryption=none&security=tls&sni=%s&insecure=0&allowInsecure=0&type=ws&host=%s&path=%s#%s\n' \
         "$UUID" "$uri_server" "$SERVER_PORT" "$ARGO_DOMAIN" "$ARGO_DOMAIN" "$encoded_path" "$tag" >>"$NODES_FILE" ;;
       trojan) printf 'trojan://%s@%s:%s?security=tls&sni=%s&insecure=0&allowInsecure=0&type=ws&host=%s&path=%s#%s\n' \
         "$UUID" "$uri_server" "$SERVER_PORT" "$ARGO_DOMAIN" "$ARGO_DOMAIN" "$encoded_path" "$tag" >>"$NODES_FILE" ;;
       vmess)
-        vmess_json="{\"v\":\"2\",\"ps\":\"${tag}\",\"add\":\"${SERVER}\",\"port\":\"${SERVER_PORT}\",\"id\":\"${UUID}\",\"aid\":\"0\",\"scy\":\"auto\",\"net\":\"ws\",\"type\":\"none\",\"host\":\"${ARGO_DOMAIN}\",\"path\":\"${path}?ed=2560\",\"tls\":\"tls\",\"sni\":\"${ARGO_DOMAIN}\",\"alpn\":\"\"}"
+        vmess_json="{\"v\":\"2\",\"ps\":\"${tag}\",\"add\":\"${SERVER}\",\"port\":\"${SERVER_PORT}\",\"id\":\"${UUID}\",\"aid\":\"0\",\"scy\":\"auto\",\"net\":\"ws\",\"type\":\"none\",\"host\":\"${ARGO_DOMAIN}\",\"path\":\"${vmess_path}\",\"tls\":\"tls\",\"sni\":\"${ARGO_DOMAIN}\",\"alpn\":\"\"}"
         vmess_link="$(printf '%s' "$vmess_json" | base64 -w 0)"
         printf 'vmess://%s\n' "$vmess_link" >>"$NODES_FILE" ;;
     esac
@@ -783,12 +949,12 @@ generate_nodes() {
   printf 'proxies:\n' >"$SUB_CLASH_PROVIDER_FILE"
   while IFS='|' read -r tag protocol path port socks; do
     case "$protocol" in
-      vless) printf '  - {name: "%s", type: vless, server: "%s", port: %s, uuid: %s, encryption: none, udp: true, tls: true, servername: %s, skip-cert-verify: false, network: ws, ws-opts: {path: "%s", headers: {Host: %s}, max-early-data: 2560, early-data-header-name: Sec-WebSocket-Protocol}}\n' \
-        "$tag" "$SERVER" "$SERVER_PORT" "$UUID" "$ARGO_DOMAIN" "$path" "$ARGO_DOMAIN" ;;
-      vmess) printf '  - {name: "%s", type: vmess, server: "%s", port: %s, uuid: %s, alterId: 0, cipher: auto, udp: true, tls: true, servername: %s, skip-cert-verify: false, network: ws, ws-opts: {path: "%s", headers: {Host: %s}, max-early-data: 2560, early-data-header-name: Sec-WebSocket-Protocol}}\n' \
-        "$tag" "$SERVER" "$SERVER_PORT" "$UUID" "$ARGO_DOMAIN" "$path" "$ARGO_DOMAIN" ;;
-      trojan) printf '  - {name: "%s", type: trojan, server: "%s", port: %s, password: %s, udp: true, tls: true, sni: %s, skip-cert-verify: false, network: ws, ws-opts: {path: "%s", headers: {Host: %s}, max-early-data: 2560, early-data-header-name: Sec-WebSocket-Protocol}}\n' \
-        "$tag" "$SERVER" "$SERVER_PORT" "$UUID" "$ARGO_DOMAIN" "$path" "$ARGO_DOMAIN" ;;
+      vless) printf '  - {name: "%s", type: vless, server: "%s", port: %s, uuid: %s, encryption: none, udp: true, tls: true, servername: %s, skip-cert-verify: false, network: ws, ws-opts: {path: "%s", headers: {Host: %s}%s}}\n' \
+        "$tag" "$SERVER" "$SERVER_PORT" "$UUID" "$ARGO_DOMAIN" "$path" "$ARGO_DOMAIN" "$clash_early_data" ;;
+      vmess) printf '  - {name: "%s", type: vmess, server: "%s", port: %s, uuid: %s, alterId: 0, cipher: auto, udp: true, tls: true, servername: %s, skip-cert-verify: false, network: ws, ws-opts: {path: "%s", headers: {Host: %s}%s}}\n' \
+        "$tag" "$SERVER" "$SERVER_PORT" "$UUID" "$ARGO_DOMAIN" "$path" "$ARGO_DOMAIN" "$clash_early_data" ;;
+      trojan) printf '  - {name: "%s", type: trojan, server: "%s", port: %s, password: %s, udp: true, tls: true, sni: %s, skip-cert-verify: false, network: ws, ws-opts: {path: "%s", headers: {Host: %s}%s}}\n' \
+        "$tag" "$SERVER" "$SERVER_PORT" "$UUID" "$ARGO_DOMAIN" "$path" "$ARGO_DOMAIN" "$clash_early_data" ;;
     esac
   done <"$NODES_CONFIG" >>"$SUB_CLASH_PROVIDER_FILE"
   cat "$SUB_CLASH_PROVIDER_FILE" >"$SUB_CLASH_FILE"
@@ -809,8 +975,8 @@ generate_nodes() {
       vmess) printf '"uuid":"%s","security":"auto","alter_id":0,' "$UUID" >>"$SUB_SING_BOX_FILE" ;;
       vless) printf '"uuid":"%s","flow":"","packet_encoding":"xudp",' "$UUID" >>"$SUB_SING_BOX_FILE" ;;
     esac
-    printf '"tls":{"enabled":true,"server_name":"%s","insecure":false,"utls":{"enabled":true,"fingerprint":"chrome"}},"transport":{"type":"ws","path":"%s","headers":{"Host":"%s"},"max_early_data":2560,"early_data_header_name":"Sec-WebSocket-Protocol"}}' \
-      "$ARGO_DOMAIN" "$path" "$ARGO_DOMAIN" >>"$SUB_SING_BOX_FILE"
+    printf '"tls":{"enabled":true,"server_name":"%s","insecure":false,"utls":{"enabled":true,"fingerprint":"chrome"}},"transport":{"type":"ws","path":"%s","headers":{"Host":"%s"}%s}}' \
+      "$ARGO_DOMAIN" "$path" "$ARGO_DOMAIN" "$sing_box_early_data" >>"$SUB_SING_BOX_FILE"
   done <"$NODES_CONFIG"
   printf ']}\n' >>"$SUB_SING_BOX_FILE"
   chmod 644 "$SUB_BASE64_FILE"
@@ -915,7 +1081,7 @@ health_check() {
 }
 
 prompt_install_values() {
-  local value endpoint
+  local value endpoint core_choice
   read_input "请输入 Argo Token（必填）: " value
   valid_argo_token "$value" || die "Argo Token 格式不正确。"
   ARGO_TOKEN="$value"
@@ -932,6 +1098,13 @@ prompt_install_values() {
   endpoint="${endpoint:-${SERVER}:${SERVER_PORT}}"
   parse_endpoint "$endpoint"
   valid_domain "$ARGO_DOMAIN" || die "Argo 域名格式不正确。"
+  read_input "请选择代理核心 [1 Sing-box / 2 Xray，当前 $(core_label)]: " core_choice
+  case "${core_choice:-}" in
+    "") CORE="${CORE:-sing-box}" ;;
+    1) CORE="sing-box" ;;
+    2) CORE="xray" ;;
+    *) die "核心选项无效，请输入 1 或 2。" ;;
+  esac
 }
 
 parse_endpoint() {
@@ -1075,9 +1248,9 @@ stop_orphan_project_listeners() {
       [[ -n "$pid" ]] || continue
       exe="$(readlink -f "/proc/${pid}/exe" 2>/dev/null || true)"
       case "$exe" in
-        "${BIN_DIR}/sing-box"|"${LEGACY_WORK_DIR}/bin/sing-box"|"${LEGACY_WORK_DIR}/sing-box")
+        "${BIN_DIR}/sing-box"|"${BIN_DIR}/xray"|"${LEGACY_WORK_DIR}/bin/sing-box"|"${LEGACY_WORK_DIR}/sing-box")
           kill "$pid" 2>/dev/null || true
-          info "已停止遗留 sing-box 进程 PID ${pid}（端口 ${port}）。"
+          info "已停止遗留项目核心进程 PID ${pid}（端口 ${port}）。"
           found=1
           ;;
       esac
@@ -1101,7 +1274,7 @@ show_install_nodes() {
 
 install_project() {
   local install_mode="${1:-local}" installer_source latest_installer
-  local work_backup="" sing_stage argo_stage file
+  local work_backup="" core_stage argo_stage file core_target selected_core_version
   require_root
   control_panel
   subsection "安装 / 更新"
@@ -1131,7 +1304,7 @@ install_project() {
   assert_service_names_available
   install -d -m 755 "$WORK_DIR" "$BIN_DIR"
   install -d -m 700 "$BACKUP_DIR"
-  for file in "$ENV_FILE" "$NODES_CONFIG" "$SING_BOX_CONFIG" "$NGINX_CONFIG" \
+  for file in "$ENV_FILE" "$NODES_CONFIG" "$SING_BOX_CONFIG" "$XRAY_CONFIG" "$NGINX_CONFIG" \
     "$LEGACY_NGINX_CONFIG" "$LOCAL_SCRIPT"; do
     if [[ -f "$file" ]]; then
       if [[ -z "$work_backup" ]]; then
@@ -1142,17 +1315,20 @@ install_project() {
       cp -a "$file" "$work_backup/"
     fi
   done
-  sing_stage="$(mktemp)"; argo_stage="$(mktemp)"
-  stage_sing_box "$DEFAULT_SING_BOX_VERSION" "$sing_stage"
+  core_stage="$(mktemp)"; argo_stage="$(mktemp)"
+  selected_core_version="$DEFAULT_SING_BOX_VERSION"
+  [[ "$CORE" == "xray" ]] && selected_core_version="$DEFAULT_XRAY_VERSION"
+  stage_core "$selected_core_version" "$core_stage"
   stage_cloudflared "$argo_stage"
-  install -m 755 "$sing_stage" "${BIN_DIR}/sing-box.new"
+  core_target="$(core_binary)"
+  install -m 755 "$core_stage" "${core_target}.new"
   install -m 755 "$argo_stage" "${BIN_DIR}/cloudflared.new"
-  mv -f "${BIN_DIR}/sing-box.new" "${BIN_DIR}/sing-box"
+  mv -f "${core_target}.new" "$core_target"
   mv -f "${BIN_DIR}/cloudflared.new" "${BIN_DIR}/cloudflared"
-  rm -f "$sing_stage" "$argo_stage"
+  rm -f "$core_stage" "$argo_stage"
   printf 'version=%s\n' "$VERSION" >"$MANAGED_FILE"
   save_env
-  write_sing_box_config
+  write_core_config
   if [[ -f "$LEGACY_NGINX_CONFIG" ]] &&
     grep -q '/etc/sba/' "$LEGACY_NGINX_CONFIG" &&
     grep -qE '(/sba-sub|/sba-vl|/sba-vm|/sba-tr)' "$LEGACY_NGINX_CONFIG"; then
@@ -1193,7 +1369,7 @@ install_project() {
   fi
   section "运行摘要"
   state_value "Argo 服务" "$(service_status "$ARGO_SERVICE")"
-  state_value "Sing-box 服务" "$(service_status "$SING_SERVICE")"
+  state_value "$(core_label) 服务" "$(service_status "$SING_SERVICE")"
   key_value "Argo 域名" "$ARGO_DOMAIN"
   endpoint_value "优选入口" "$SERVER" "$SERVER_PORT"
   key_value "Argo 回源" "127.0.0.1:${ORIGIN_PORT}"
@@ -1225,7 +1401,7 @@ install_menu() {
 
 begin_config_change() {
   CONFIG_SNAPSHOT="$(mktemp -d)"
-  cp -a "$ENV_FILE" "$NODES_CONFIG" "$SING_BOX_CONFIG" "$NGINX_CONFIG" \
+  cp -a "$ENV_FILE" "$NODES_CONFIG" "$SING_BOX_CONFIG" "$XRAY_CONFIG" "$NGINX_CONFIG" \
     "/etc/systemd/system/${SING_SERVICE}.service" "/etc/systemd/system/${ARGO_SERVICE}.service" \
     "$NODES_FILE" "$SUB_FILE" "$SUB_BASE64_FILE" "$SUB_CLASH_FILE" \
     "$SUB_CLASH_PROVIDER_FILE" "$SUB_SING_BOX_FILE" "$SUB_SHADOWROCKET_FILE" \
@@ -1237,7 +1413,7 @@ apply_runtime_config() {
   local snapshot="${CONFIG_SNAPSHOT:-}"
   [[ -n "$snapshot" && -d "$snapshot" ]] || die "缺少配置事务快照。"
   info "正在校验配置并重启服务..."
-  if save_env && write_sing_box_config && write_nginx_config && write_services &&
+  if save_env && write_core_config && write_nginx_config && write_services &&
     generate_nodes &&
     systemctl daemon-reload &&
     systemctl restart nginx "$SING_SERVICE" "$ARGO_SERVICE" && wait_for_services; then
@@ -1249,6 +1425,7 @@ apply_runtime_config() {
   [[ -f "$snapshot/asb.env" ]] && install -m 600 "$snapshot/asb.env" "$ENV_FILE"
   [[ -f "$snapshot/nodes.conf" ]] && install -m 600 "$snapshot/nodes.conf" "$NODES_CONFIG"
   [[ -f "$snapshot/sing-box.json" ]] && install -m 600 "$snapshot/sing-box.json" "$SING_BOX_CONFIG"
+  [[ -f "$snapshot/xray.json" ]] && install -m 600 "$snapshot/xray.json" "$XRAY_CONFIG"
   [[ -f "$snapshot/argo-singbox.conf" ]] && install -m 644 "$snapshot/argo-singbox.conf" "$NGINX_CONFIG"
   [[ -f "$snapshot/${SING_SERVICE}.service" ]] && install -m 600 "$snapshot/${SING_SERVICE}.service" "/etc/systemd/system/${SING_SERVICE}.service"
   [[ -f "$snapshot/${ARGO_SERVICE}.service" ]] && install -m 600 "$snapshot/${ARGO_SERVICE}.service" "/etc/systemd/system/${ARGO_SERVICE}.service"
@@ -1709,7 +1886,7 @@ doctor() {
     red "项目配置：无效"
     failed=1
   fi
-  if "$BIN_DIR/sing-box" check -c "$SING_BOX_CONFIG" >/dev/null 2>&1; then green "Sing-box 配置：有效"; else red "Sing-box 配置：无效"; failed=1; fi
+  if core_check >/dev/null 2>&1; then green "$(core_label) 配置：有效"; else red "$(core_label) 配置：无效"; failed=1; fi
   if nginx -t >/dev/null 2>&1; then green "Nginx 配置：有效"; else red "Nginx 配置：无效"; failed=1; fi
   [[ -f "/etc/systemd/system/${ARGO_SERVICE}.service" ]] &&
     grep -Fq -- "--token ${ARGO_TOKEN}" "/etc/systemd/system/${ARGO_SERVICE}.service" && token_in_unit=1
@@ -1786,20 +1963,21 @@ toggle_service() {
 }
 
 sync_versions() {
-  local old_argo old_sing new_argo new_sing wanted_sing wanted_argo
-  local sing_stage="" argo_stage="" backup_stamp answer update_sing=0 update_argo=0
+  local old_argo old_core new_argo new_core wanted_core wanted_argo core_target
+  local core_stage="" argo_stage="" backup_stamp answer update_core=0 update_argo=0
   local services=()
   require_root
   [[ -f "$ENV_FILE" ]] || die "${PROJECT_NAME} 尚未安装。"
+  load_env
   [[ -f "/etc/systemd/system/${ARGO_SERVICE}.service" && -f "/etc/systemd/system/${SING_SERVICE}.service" ]] ||
-    die "Argo 或 Sing-box 服务文件不存在，请先执行安装。"
+    die "Argo 或代理核心服务文件不存在，请先执行安装。"
   brand "${PROJECT_NAME} · 核心更新"
   detect_arch
   old_argo="$(local_cloudflared_version || true)"
-  old_sing="$(local_sing_box_version || true)"
-  wanted_sing="$(get_sing_box_version)"
+  old_core="$(local_core_version || true)"
+  wanted_core="$(get_core_version)"
   wanted_argo="$(get_cloudflared_version)"
-  new_sing="$wanted_sing"
+  new_core="$wanted_core"
   new_argo="$wanted_argo"
   section "Argo / cloudflared 核心"
   key_value "当前版本" "${old_argo:-未安装}"
@@ -1811,27 +1989,27 @@ sync_versions() {
   else
     green "Argo / cloudflared 已是目标版本。"
   fi
-  section "Sing-box 核心"
-  key_value "当前版本" "${old_sing:-未安装}"
-  key_value "目标版本" "${new_sing:-未知}"
-  if [[ "$old_sing" != "$new_sing" ]]; then
-    read_input "是否更新 Sing-box？[y/N，0 返回]: " answer
+  section "$(core_label) 核心"
+  key_value "当前版本" "${old_core:-未安装}"
+  key_value "目标版本" "${new_core:-未知}"
+  if [[ "$old_core" != "$new_core" ]]; then
+    read_input "是否更新 $(core_label)？[y/N，0 返回]: " answer
     is_exit_input "$answer" && { return_notice; return 0; }
-    [[ "$answer" =~ ^[Yy]$ ]] && update_sing=1
+    [[ "$answer" =~ ^[Yy]$ ]] && update_core=1
   else
-    green "Sing-box 已是目标版本。"
+    green "$(core_label) 已是目标版本。"
   fi
-  if [[ "$old_sing" == "$new_sing" && "$old_argo" == "$new_argo" ]]; then
+  if [[ "$old_core" == "$new_core" && "$old_argo" == "$new_argo" ]]; then
     return 0
   fi
-  if ((update_sing == 0 && update_argo == 0)); then
+  if ((update_core == 0 && update_argo == 0)); then
     yellow "未选择需要更新的核心。"
     return 0
   fi
-  if ((update_sing)); then
-    sing_stage="$(mktemp)"
-    stage_sing_box "$wanted_sing" "$sing_stage"
-    "$sing_stage" check -c "$SING_BOX_CONFIG"
+  if ((update_core)); then
+    core_stage="$(mktemp)"
+    stage_core "$wanted_core" "$core_stage"
+    core_check "$core_stage"
   fi
   if ((update_argo)); then
     argo_stage="$(mktemp)"
@@ -1839,11 +2017,12 @@ sync_versions() {
   fi
   backup_stamp="${BACKUP_DIR}/core-$(date +%Y%m%d-%H%M%S)"
   install -d -m 700 "$backup_stamp"
-  ((update_sing)) && cp -a "$BIN_DIR/sing-box" "$backup_stamp/"
+  core_target="$(core_binary)"
+  ((update_core)) && cp -a "$core_target" "$backup_stamp/"
   ((update_argo)) && cp -a "$BIN_DIR/cloudflared" "$backup_stamp/"
-  if ((update_sing)); then
-    install -m 755 "$sing_stage" "${BIN_DIR}/sing-box.new"
-    mv -f "${BIN_DIR}/sing-box.new" "$BIN_DIR/sing-box"
+  if ((update_core)); then
+    install -m 755 "$core_stage" "${core_target}.new"
+    mv -f "${core_target}.new" "$core_target"
     services+=("$SING_SERVICE")
   fi
   if ((update_argo)); then
@@ -1851,17 +2030,17 @@ sync_versions() {
     mv -f "${BIN_DIR}/cloudflared.new" "$BIN_DIR/cloudflared"
     services+=("$ARGO_SERVICE")
   fi
-  rm -f "$sing_stage" "$argo_stage"
+  rm -f "$core_stage" "$argo_stage"
   if systemctl restart "${services[@]}" &&
-    wait_for_services && "$BIN_DIR/sing-box" check -c "$SING_BOX_CONFIG"; then
+    wait_for_services && core_check; then
     rm -rf "$backup_stamp"
     printf '\n'
     ((update_argo)) && green "Argo / cloudflared 更新成功：${old_argo:-无} → ${new_argo}"
-    ((update_sing)) && green "Sing-box 更新成功：${old_sing:-无} → ${new_sing}"
+    ((update_core)) && green "$(core_label) 更新成功：${old_core:-无} → ${new_core}"
     return 0
   else
     red "更新后验证失败，正在自动回滚。"
-    ((update_sing)) && install -m 755 "$backup_stamp/sing-box" "$BIN_DIR/sing-box"
+    ((update_core)) && install -m 755 "$backup_stamp/$(basename "$core_target")" "$core_target"
     ((update_argo)) && install -m 755 "$backup_stamp/cloudflared" "$BIN_DIR/cloudflared"
     systemctl restart "${services[@]}" || true
     wait_for_services || true
@@ -1887,11 +2066,12 @@ manage_bbr() {
 restart_services() {
   local answer
   require_root
+  load_env
   brand "${PROJECT_NAME} · 重启服务"
-  read_input "确认重启 Nginx、Sing-box 与 Argo？[y/N，0 返回]: " answer
+  read_input "确认重启 Nginx、$(core_label) 与 Argo？[y/N，0 返回]: " answer
   is_exit_input "$answer" && { return_notice; return 0; }
   [[ "$answer" =~ ^[Yy]$ ]] || { yellow "已取消重启。"; return 0; }
-  info "正在重启 Nginx、Sing-box 与 Argo..."
+  info "正在重启 Nginx、$(core_label) 与 Argo..."
   systemctl restart nginx "$SING_SERVICE" "$ARGO_SERVICE"
   green "服务已重启。"
 }
@@ -1917,7 +2097,7 @@ uninstall_project() {
   yellow "即将删除以下项目内容："
   printf '  %s•%s %s systemd 服务\n' "$C_BRIGHT_YELLOW" "$C_RESET" "$PROJECT_NAME"
   printf '  %s•%s 私有 Argo / cloudflared 核心\n' "$C_BRIGHT_YELLOW" "$C_RESET"
-  printf '  %s•%s 私有 Sing-box 核心\n' "$C_BRIGHT_YELLOW" "$C_RESET"
+  printf '  %s•%s 私有 Sing-box / Xray 核心\n' "$C_BRIGHT_YELLOW" "$C_RESET"
   printf '  %s•%s %s 配置、订阅与备份\n' "$C_BRIGHT_YELLOW" "$C_RESET" "$WORK_DIR"
   printf '  %s•%s %s 命令入口\n\n' "$C_BRIGHT_YELLOW" "$C_RESET" "$COMMAND_NAME"
   read_input "确认彻底卸载 ${PROJECT_NAME}？[y/N，0 返回]: " answer
@@ -1937,7 +2117,7 @@ uninstall_project() {
     is_exit_input "$answer" && { return_notice; return 0; }
     [[ "$answer" =~ ^[Yy]$ ]] && remove_warp=1
   fi
-  read_input "同时卸载脚本使用的通用工具 curl/ca-certificates/openssl/tar/qrencode/gnupg？可能被其他程序使用，默认保留 [y/N，0 返回]: " answer
+  read_input "同时卸载脚本使用的通用工具 curl/ca-certificates/openssl/tar/unzip/qrencode/gnupg？可能被其他程序使用，默认保留 [y/N，0 返回]: " answer
   is_exit_input "$answer" && { return_notice; return 0; }
   [[ "$answer" =~ ^[Yy]$ ]] && remove_tools=1
 
@@ -1952,10 +2132,10 @@ uninstall_project() {
     [[ "$target" == "$LOCAL_SCRIPT" ]] && rm -f "$legacy_link"
   done
   remove_legacy_symlink
-  rm -f "$ENV_FILE" "$NODES_CONFIG" "$SING_BOX_CONFIG" "$LOCAL_SCRIPT" "$MANAGED_FILE" \
+  rm -f "$ENV_FILE" "$NODES_CONFIG" "$SING_BOX_CONFIG" "$XRAY_CONFIG" "$LOCAL_SCRIPT" "$MANAGED_FILE" \
     "$SUB_FILE" "$SUB_BASE64_FILE" "$SUB_CLASH_FILE" "$SUB_CLASH_PROVIDER_FILE" \
     "$SUB_SING_BOX_FILE" "$SUB_SHADOWROCKET_FILE" "$SUB_AUTO_QR_FILE" \
-    "$BIN_DIR/sing-box" "$BIN_DIR/cloudflared"
+    "$BIN_DIR/sing-box" "$BIN_DIR/xray" "$BIN_DIR/cloudflared"
   rm -rf "$BACKUP_DIR"
   rm -rf "$resolved_work_dir"
 
@@ -1976,7 +2156,7 @@ uninstall_project() {
     systemctl restart nginx 2>/dev/null || true
   fi
   if ((remove_tools)); then
-    purge_installed_packages curl ca-certificates openssl tar qrencode gnupg >/dev/null 2>&1 ||
+    purge_installed_packages curl ca-certificates openssl tar unzip qrencode gnupg >/dev/null 2>&1 ||
       yellow "部分通用工具卸载失败，请手工检查。"
   fi
   systemctl daemon-reload
@@ -1990,7 +2170,7 @@ menu() {
     control_panel
     subsection "运行概览"
     state_value "Argo 服务" "$(service_status "$ARGO_SERVICE")"
-    state_value "Sing-box 服务" "$(service_status "$SING_SERVICE")"
+    state_value "$(core_label) 服务" "$(service_status "$SING_SERVICE")"
     if [[ -n "$ARGO_DOMAIN" ]]; then
       key_value "Argo 域名" "$ARGO_DOMAIN"
       endpoint_value "优选入口" "$SERVER" "$SERVER_PORT"
@@ -2004,13 +2184,13 @@ menu() {
     section "日常管理"
     menu_item 1 "查看节点信息" "${COMMAND_NAME} -n"
     menu_item 2 "开启/关闭 Argo" "${COMMAND_NAME} -a"
-    menu_item 3 "开启/关闭 Sing-box" "${COMMAND_NAME} -s"
+    menu_item 3 "开启/关闭 $(core_label)" "${COMMAND_NAME} -s"
     menu_item 4 "集中配置" "${COMMAND_NAME} -c"
     menu_item 5 "重启全部服务" "${COMMAND_NAME} -r"
     menu_item 6 "完整诊断" "${COMMAND_NAME} -x"
     section "维护工具"
     menu_item 7 "安装 / 更新 ${PROJECT_NAME}" "${COMMAND_NAME} -i"
-    menu_item 8 "更新 Argo / Sing-box 核心" "${COMMAND_NAME} -v"
+    menu_item 8 "更新 Argo / $(core_label) 核心" "${COMMAND_NAME} -v"
     menu_item 9 "备份节点配置" "${COMMAND_NAME} -k"
     menu_item 10 "恢复节点配置" "${COMMAND_NAME} -l"
     menu_item 11 "第三方 BBR / DD 工具" "${COMMAND_NAME} -b"
@@ -2021,7 +2201,7 @@ menu() {
     case "$choice" in
       1) show_nodes ;;
       2) toggle_service "$ARGO_SERVICE" Argo ;;
-      3) toggle_service "$SING_SERVICE" Sing-box ;;
+      3) toggle_service "$SING_SERVICE" "$(core_label)" ;;
       4) manage_config ;;
       5) restart_services ;;
       6) doctor ;;
@@ -2041,7 +2221,7 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
   case "${1:-}" in
     -n) show_nodes ;;
     -a) toggle_service "$ARGO_SERVICE" Argo ;;
-    -s) toggle_service "$SING_SERVICE" Sing-box ;;
+    -s) load_env; toggle_service "$SING_SERVICE" "$(core_label)" ;;
     -c) manage_config ;;
     -r) restart_services ;;
     -x) doctor ;;

@@ -1,13 +1,14 @@
-# Argo-Singbox v2.12.2
+# Argo-Singbox v2.13.0
 
 面向固定 Argo Token 隧道的中文轻量安装脚本，提供：
 
 - VLESS + WS + TLS：`/argo-vl`
 - VMess + WS + TLS：`/argo-vm`
 - Trojan + WS + TLS：`/argo-tr`
+- 安装时可选 Sing-box 或 Xray 内核，三种 WS 节点、订阅与 Argo 接口保持一致
 - 明文节点、终端及网页自动适配订阅 QR、原始订阅与 Base64 通用订阅
 
-TLS 由 Cloudflare 边缘终止；VPS 本机 Nginx 和 sing-box 仅监听回环地址。固定隧道必须在 Cloudflare Zero Trust 添加 Public Hostname，Service 指向 `http://localhost:3010`。Public Hostname 域名必须由安装者输入；Cloudflare 优选入口默认使用 `bestcf.cdn.fiatnorm.us.kg:443`，也可在安装或配置时修改。
+TLS 由 Cloudflare 边缘终止；VPS 本机 Nginx 与所选代理内核仅监听回环地址。固定隧道必须在 Cloudflare Zero Trust 添加 Public Hostname，Service 指向 `http://localhost:3010`。Public Hostname 域名必须由安装者输入；Cloudflare 优选入口默认使用 `bestcf.cdn.fiatnorm.us.kg:443`，也可在安装或配置时修改。
 
 ## 支持范围
 
@@ -34,19 +35,20 @@ chmod +x argo-singbox.sh
 sudo ./argo-singbox.sh -i
 ```
 
-安装时输入 Argo Token、Public Hostname，并以一行 `域名/IP:端口` 的形式输入 Cloudflare 优选入口，默认值为 `bestcf.cdn.fiatnorm.us.kg:443`。IPv6 使用 `[2001:db8::1]:443`。
+安装时输入 Argo Token、Public Hostname，并以一行 `域名/IP:端口` 的形式输入 Cloudflare 优选入口，默认值为 `bestcf.cdn.fiatnorm.us.kg:443`。IPv6 使用 `[2001:db8::1]:443`。最后选择 `1` 使用默认 Sing-box，或选择 `2` 使用 Xray；重新执行 `asb -i` 可切换内核，原有节点和订阅地址不变。
 
 核心安装在项目私有目录：
 
 ```text
 /etc/asb/bin/sing-box
+/etc/asb/bin/xray
 /etc/asb/bin/cloudflared
 /etc/asb/nodes.txt
 /etc/asb/subscription.*
 /etc/asb/backup/
 ```
 
-项目核心、配置、节点和订阅数据统一保存在 `/etc/asb/`。只有 systemd unit、Nginx 站点配置和 `/usr/local/bin/asb` 命令入口按 Linux 系统约定保存在对应系统目录。服务使用 `asb-sing-box.service` 和 `asb-cloudflared.service`，不会覆盖系统已有的通用 `sing-box.service` 或 `cloudflared.service`。
+项目核心、配置、节点和订阅数据统一保存在 `/etc/asb/`。只有 systemd unit、Nginx 站点配置和 `/usr/local/bin/asb` 命令入口按 Linux 系统约定保存在对应系统目录。服务使用 `asb-sing-box.service` 和 `asb-cloudflared.service`，不会覆盖系统已有的通用 `sing-box.service`、`xray.service` 或 `cloudflared.service`。
 
 从旧版升级时，脚本仅在 `/etc/sba/managed` 所有权标记有效且 `/etc/asb` 不存在时，将旧目录迁移为 `/etc/asb`、把 `sba.env` 改名为 `asb.env`，并临时保留指向新目录的兼容链接；新服务验证通过后才移除属于本项目的旧 `sba-*` 服务和兼容链接，失败则尝试恢复旧服务。两个真实目录同时存在或旧目录没有所有权标记时会停止并要求人工核对。
 
@@ -102,13 +104,14 @@ v2.11.8 收紧终端返回交互为仅输入 `0`；配置文件索引删除标�
 
 v2.11.9 配置文件索引中的每条订阅链接下方均显示白色分隔线，便于逐项辨识。
 
+v2.13.0 增加 Xray 内核适配。安装时可在 Sing-box 与 Xray 间选择，VLESS、VMess、Trojan 的 WS + TLS 节点继续共用 `nodes.conf`、Nginx 反代、固定 Argo Token 隧道和全部订阅入口。Xray 同样按 `WARP 目标域名 → 节点 SOCKS5 → direct` 生成路由，下载、配置检查、更新和回滚沿用项目的 SHA256、原子替换与项目专属服务边界；不引入 Reality、临时隧道或内置 WARP 凭据。
 v2.12.2 将首次安装和缺省环境配置中的 Cloudflare 优选入口统一为 `bestcf.cdn.fiatnorm.us.kg:443`，同时保留安装及集中配置时的自定义入口能力；同步更新 README、维护约束和终端 UI 示例。
 v2.12.1 在 v2.12.0 的 UI 收敛基础上补强配置事务：派生节点/订阅文件纳入回滚快照，订阅生成或服务验证失败时恢复完整运行面，并集中校验已有环境文件；状态行对 IPv6 优选入口统一显示为 `[地址]:端口`。同时保持 64 列分隔线、白色下划线 URL、唯一自动适配 QR 和节点专用备份边界不变。
 v2.12.0 配置文件索引改为白色下划线 URL，不再输出整行链接分隔线；所有页面的分隔线后一级小标题均紧贴显示。Argo 回源地址保持白色，本机公网 IP 与优选入口 IP 保持亮紫色。
 
-下载具有总超时、重试、GitHub 代理回退和 GitHub Release SHA256 digest 校验；二进制还会执行基本版本检查。sing-box 版本优先采用上游 `force_version`，不可用时回退到 GitHub releases，再失败才使用脚本预设版本。
+下载具有总超时、重试、GitHub 代理回退和 GitHub Release SHA256 digest 校验；二进制还会执行基本版本检查。Sing-box 版本优先采用上游 `force_version`，不可用时回退到 GitHub releases，再失败才使用脚本预设版本；Xray 从 `XTLS/Xray-core` 官方 Release 查询与校验。
 
-首次安装使用经过项目确认的 sing-box `1.13.0-rc.4`，避免安装时因远端版本变化产生不一致；cloudflared 首次安装按原版 SBA 逻辑使用 GitHub latest。后续执行 `asb -v` 时，sing-box 仍按 `force_version`、GitHub releases、预设版本的顺序查询更新。
+首次安装使用经过项目确认的 Sing-box `1.13.0-rc.4` 或 Xray `26.7.11`，避免安装时因远端版本变化产生不一致；cloudflared 首次安装按原版 SBA 逻辑使用 GitHub latest。后续执行 `asb -v` 时，脚本只查询和更新当前选择的代理内核。
 
 ## 是否需要反复拉取 GitHub
 
@@ -116,7 +119,7 @@ v2.12.0 配置文件索引改为白色下划线 URL，不再输出整行链接�
 
 以下操作仍会主动访问网络：
 
-- 首次安装或再次执行“安装 / 更新”：获取并校验最新 Argo-Singbox 脚本，再查询并下载 sing-box、cloudflared 官方发布物。
+- 首次安装或再次执行“安装 / 更新”：获取并校验最新 Argo-Singbox 脚本，再查询并下载所选代理内核和 cloudflared 官方发布物。
 - `asb -v`：查询 GitHub Release/`force_version`，有更新并确认后下载核心。
 - 健康检查：访问 Cloudflare 公网入口。
 - 状态诊断：尝试访问 `api.ipify.org` 获取公网 IP，失败时自动使用本机地址。
@@ -148,11 +151,11 @@ sudo ./argo-singbox.sh -i
 | `sudo asb -i` | 选择使用 VPS 本地脚本重装，或从 GitHub 获取最新脚本后安装 |
 | `sudo asb -n` | 显示全部节点、所有订阅地址及一张自动适配订阅 QR |
 | `sudo asb -a` | 开启或关闭 Argo/cloudflared 服务 |
-| `sudo asb -s` | 开启或关闭 sing-box 服务 |
+| `sudo asb -s` | 开启或关闭当前选择的 Sing-box / Xray 服务 |
 | `sudo asb -c` | 修改 Token、域名、优选入口、端口、UUID、节点、SOCKS5 和 WARP 域名 |
-| `sudo asb -r` | 重启 Nginx、sing-box 和 Argo 服务 |
+| `sudo asb -r` | 重启 Nginx、当前代理内核和 Argo 服务 |
 | `sudo asb -x` | 执行完整诊断、WS 检查并显示最近日志 |
-| `sudo asb -v` | 比较版本并更新 Argo/cloudflared 与 sing-box 核心 |
+| `sudo asb -v` | 比较版本并更新 Argo/cloudflared 与当前选择的代理内核 |
 | `sudo asb -k [文件夹或文件.tar.gz]` | 备份节点配置到指定文件夹或完整归档路径 |
 | `sudo asb -k /etc/asb/backup/my-asb.tar.gz` | 备份节点配置到指定文件 |
 | `sudo asb -l /etc/asb/backup/my-asb.tar.gz` | 从指定备份恢复节点配置并验证服务 |
@@ -168,12 +171,12 @@ sudo ./argo-singbox.sh -i
 ```text
 1. 查看节点信息 (asb -n)
 2. 开启/关闭 Argo (asb -a)
-3. 开启/关闭 Sing-box (asb -s)
+3. 开启/关闭当前代理内核 (asb -s)
 4. 集中配置 (asb -c)
 5. 重启全部服务 (asb -r)
 6. 完整诊断 (asb -x)
 7. 安装 / 更新 Argo-Singbox (asb -i)
-8. 更新 Argo / Sing-box 核心 (asb -v)
+8. 更新 Argo / 当前代理内核 (asb -v)
 9. 备份节点配置 (asb -k)
 10. 恢复节点配置 (asb -l)
 11. 第三方 BBR / DD 工具 (asb -b)
@@ -191,7 +194,7 @@ sudo ./argo-singbox.sh -i
 203.0.113.10:1080:proxyuser:proxypass
 ```
 
-路由按节点的 sing-box inbound tag 匹配，因此同一种协议的不同 WS 路径可以使用不同出口。SOCKS5 地址、端口、用户名和密码只写入权限为 `600` 的项目配置；节点分享链接不包含出站凭据。配置变更会依次执行 sing-box 配置检查、`nginx -t`、服务重启和状态验证，失败时恢复修改前文件。
+路由按节点 inbound tag 匹配，因此同一种协议的不同 WS 路径可以使用不同出口。SOCKS5 地址、端口、用户名和密码只写入权限为 `600` 的项目配置；节点分享链接不包含出站凭据。配置变更会依次执行当前内核配置检查、`nginx -t`、服务重启和状态验证，失败时恢复修改前文件。
 
 集中配置中的基础项、节点操作和 WARP 子菜单均可输入 `0` 返回上级界面；返回时不会写入半成品配置。
 
@@ -203,7 +206,7 @@ sudo ./argo-singbox.sh -i
 https://chatgpt.com,api.openai.com,example.com
 ```
 
-脚本会提取并保存域名、启动 `warp-svc`、注册客户端、切换本地 proxy 模式，再生成优先级明确的 sing-box 路由：
+脚本会提取并保存域名、启动 `warp-svc`、注册客户端、切换本地 proxy 模式，再为当前内核生成优先级明确的路由：
 
 代理端口提示只能输入数字或直接回车采用默认值；目标网址应在下一条提示中输入。若客户端存在无法读取的旧注册，脚本会先询问是否删除并重新注册，不会静默覆盖现有注册。
 
@@ -221,9 +224,9 @@ WARP 只覆盖匹配的网址，不会替换其他节点的 SOCKS5 配置。`asb
 
 - `asb -x`：检查配置与 Token 同步、三个服务、全部动态监听端口、每条公网 WS 路径、核心版本，并输出最近 30 条项目日志。
 - `asb -k [文件夹或文件.tar.gz]`：只备份 `/etc/asb/nodes.conf` 节点配置，默认保存到 `/etc/asb/backup/asb-nodes-backup-时间.tar.gz`；也可指定其他绝对路径。
-- `asb -l [文件夹或文件.tar.gz]`：默认从 `/etc/asb/backup/` 选择最新节点归档，也可指定目录或完整文件。解压前会验证 gzip、成员路径与文件类型，拒绝目录穿越、符号链接和特殊文件；随后只恢复节点配置，重新生成 sing-box、Nginx、订阅文件并验证服务，失败自动回滚。传入旧版完整 `/etc/asb` 归档时，也只读取其中的 `nodes.conf`，不会恢复旧脚本、旧核心或整个项目目录。
+- `asb -l [文件夹或文件.tar.gz]`：默认从 `/etc/asb/backup/` 选择最新节点归档，也可指定目录或完整文件。解压前会验证 gzip、成员路径与文件类型，拒绝目录穿越、符号链接和特殊文件；随后只恢复节点配置，重新生成当前内核配置、Nginx、订阅文件并验证服务，失败自动回滚。传入旧版完整 `/etc/asb` 归档时，也只读取其中的 `nodes.conf`，不会恢复旧脚本、旧核心或整个项目目录。
 
-`asb -v` 会分别显示 Argo/cloudflared 与 Sing-box 的本地、目标版本，并分别询问是否更新。只下载、备份、替换和重启用户确认更新的核心；下载文件会校验 SHA256/可执行性，Sing-box 还会执行配置检查。验证失败时只回滚本次选择的核心。
+`asb -v` 会分别显示 Argo/cloudflared 与当前选择的 Sing-box 或 Xray 的本地、目标版本，并分别询问是否更新。只下载、备份、替换和重启用户确认更新的核心；下载文件会校验 SHA256/可执行性，并在替换前检查当前配置。验证失败时只回滚本次选择的核心。
 
 核心更新的备份只用于本次回滚，验证成功后立即删除；失败时保留，便于核对和恢复。
 
@@ -247,7 +250,7 @@ https://你的域名/你的UUID/shadowrocket
 
 网页自动适配订阅 QR 由 `generate_nodes()` 生成，并通过订阅面板的 `/你的UUID/auto-qr.svg` 资源展示；终端仅输出这一张自动适配 QR，不为明文节点或其他独立配置重复生成二维码。
 
-默认标签使用接近原版 SBA 的 `Argo-Vl`、`Argo-Vm`、`Argo-Tr` 后缀形式。`asb -c` 修改节点时可直接修改标签和协议；标签同时作为 sing-box inbound tag 和各客户端显示名称。
+默认标签使用接近原版 SBA 的 `Argo-Vl`、`Argo-Vm`、`Argo-Tr` 后缀形式。`asb -c` 修改节点时可直接修改标签和协议；标签同时作为当前内核 inbound tag 和各客户端显示名称。
 
 如 Cloudflare 返回 Challenge/WAF，需为全部动态代理路径和订阅路径建立适当的 Skip 规则。不要把 Public Hostname 手工解析到 VPS IP；应让流量经过 Argo Tunnel。
 
@@ -262,10 +265,10 @@ https://你的域名/你的UUID/shadowrocket
 - `/etc/nginx/conf.d/argo-singbox.conf`、项目旧 Nginx 配置、`/usr/local/bin/asb`；
 - `/etc/asb/nodes.txt`、旧版 `/root` 节点文件、项目迁移链接和兼容节点文件。
 
-私有 `/etc/asb/bin/cloudflared`（Argo）和 `/etc/asb/bin/sing-box` 一定随项目删除。卸载完成后脚本立即退出，不会重新显示管理面板。
+私有 `/etc/asb/bin/cloudflared`（Argo）、`/etc/asb/bin/sing-box` 和 `/etc/asb/bin/xray` 一定随项目删除。卸载完成后脚本立即退出，不会重新显示管理面板。
 
-Nginx、Cloudflare WARP 和 `curl/ca-certificates/openssl/tar/qrencode/gnupg` 可能被其他网站或脚本共用，因此分别询问且默认不卸载；明确输入 `y` 后使用 APT purge。选择卸载 WARP 时还会断开连接、删除注册、停止 `warp-svc`，并删除本脚本配置的 Cloudflare APT 软件源和密钥。选择保留 Nginx 时只删除本项目站点配置并重启 Nginx。
+Nginx、Cloudflare WARP 和 `curl/ca-certificates/openssl/tar/unzip/qrencode/gnupg` 可能被其他网站或脚本共用，因此分别询问且默认不卸载；明确输入 `y` 后使用 APT purge。选择卸载 WARP 时还会断开连接、删除注册、停止 `warp-svc`，并删除本脚本配置的 Cloudflare APT 软件源和密钥。选择保留 Nginx 时只删除本项目站点配置并重启 Nginx。
 
-只有确认 `/etc/asb/managed` 项目所有权标记后，脚本才递归删除整个 `/etc/asb`，因此项目备份、旧版迁移文件或历史订阅不会残留。请勿把个人文件放入该项目私有目录。脚本不会删除 `/usr/local/bin/sing-box`、`/usr/local/bin/cloudflared` 或非本项目 systemd 服务。
+只有确认 `/etc/asb/managed` 项目所有权标记后，脚本才递归删除整个 `/etc/asb`，因此项目备份、旧版迁移文件或历史订阅不会残留。请勿把个人文件放入该项目私有目录。脚本不会删除 `/usr/local/bin/sing-box`、`/usr/local/bin/xray`、`/usr/local/bin/cloudflared` 或非本项目 systemd 服务。
 
-本项目不包含 Reality、临时隧道、Argo Json、Cloudflare API 建隧道、英文界面或其他协议脚本。
+本项目不包含 Reality、临时隧道、Argo Json、Cloudflare API 建隧道、英文界面或其他协议脚本；Xray 仅适配现有 VLESS、VMess、Trojan 的 WS + TLS 节点。
