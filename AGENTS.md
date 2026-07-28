@@ -30,7 +30,7 @@
 
 ## 配置与数据格式
 
-`/etc/asb/asb.env` 由脚本生成并通过 Bash `source` 读取，保存 UUID、Argo 域名、优选入口、Token、回源端口和 WARP 配置。必须使用安全转义、`600` 权限和同目录临时文件原子替换；不得把未经验证的用户输入直接拼入该文件或 systemd unit。
+`/etc/asb/asb.env` 由脚本生成并通过 Bash `source` 读取，保存 UUID、Argo 域名、优选入口、Token、回源端口、WARP 配置和当前 `CORE` 选择。必须使用安全转义、`600` 权限和同目录临时文件原子替换；不得把未经验证的用户输入直接拼入该文件或 systemd unit。
 
 `/etc/asb/nodes.conf` 每行格式为：
 
@@ -40,13 +40,13 @@
 
 其中协议仅允许 `vless`、`vmess`、`trojan`；SOCKS5 留空表示 direct，否则格式为 `主机:端口:用户名:密码`。标签、WS 路径和本地端口必须全局唯一。改变该格式时必须同时迁移旧文件，不能静默破坏已有节点。
 
-生成文件包括明文节点、Base64、Clash/Mihomo、Clash Provider、sing-box、Shadowrocket 订阅和自动适配订阅 QR。它们是派生数据，应由 `generate_nodes()` 统一重建，不应成为独立配置源。
+生成文件包括明文节点、Base64、Clash/Mihomo、Clash Provider、sing-box、Shadowrocket 订阅和自动适配订阅 QR。它们是派生数据，应由 `generate_nodes()` 统一重建，不应成为独立配置源。Clash/Mihomo 三种 WS 节点必须显式启用 UDP；VLESS 订阅必须保留 XUDP（`packetEncoding=xudp`、`packet-encoding: xudp`、`packet_encoding: "xudp"`）与 sing-box TLS 1.3 限制。
 
 ## 关键函数职责
 
 - `load_env()` / `save_env()`：读取和原子保存项目环境配置。
 - `ensure_nodes_config()` / `validate_nodes_config()`：创建默认节点并校验动态节点数据。
-- `write_sing_box_config()` / `write_xray_config()`：从同一份 `nodes.conf` 生成所选内核配置，并分别执行 `sing-box check` 或 `xray run -test`；两者都必须保持 `WARP → 节点 SOCKS5 → direct` 路由顺序。
+- `write_sing_box_config()` / `write_xray_config()`：从同一份 `nodes.conf` 分别生成并校验两套核心配置；`write_all_core_configs()` 用于首次安装，`write_available_core_configs()` 用于配置事务。两者都必须保持 `WARP → 节点 SOCKS5 → direct` 路由顺序。
 - `write_nginx_config()`：生成本地 WS 反代和 UUID 订阅入口，并执行 `nginx -t`。
 - `write_services()`：只写项目专属 systemd unit；包含 Token 的文件必须仅 root 可读。
 - `generate_nodes()`：从环境配置和 `nodes.conf` 生成全部节点及订阅文件。
@@ -62,7 +62,7 @@
 - 仅支持 Debian/Ubuntu + systemd。
 - 仅支持 amd64 和 arm64。
 - 仅支持固定 Argo Token，不加入临时隧道、Argo JSON 或 Cloudflare API 建隧道。
-- 支持 Sing-box 与 Xray 二选一；Xray 仅适配既有的 VLESS、VMess、Trojan WS + TLS 节点，不加入 Reality、Hysteria2、XHTTP 或其他协议。
+- 支持 Sing-box 与 Xray 二选一；`asb -c` 可在两者间切换，两个私有二进制与 `sing-box.json`、`xray.json` 可同时保留并从统一配置重建。Xray 仅适配既有的 VLESS、VMess、Trojan WS + TLS 节点，不加入 Reality、Hysteria2、XHTTP 或其他协议。
 - 默认保留 VLESS、VMess、Trojan 各一个 WS 节点，并允许通过 `asb -c` 动态添加、修改或删除这三种协议的 WS 节点。
 - 允许节点按 inbound tag 与 WS 路径绑定独立 SOCKS5 出站。
 - 允许用户指定目标网址优先通过 Cloudflare 官方 WARP 客户端的本地 SOCKS5 proxy 出站；未命中时仍遵循节点 SOCKS5 或 direct。

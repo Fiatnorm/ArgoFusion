@@ -1,11 +1,11 @@
-# Argo-Singbox v2.13.0
+# Argo-Singbox v2.13.2
 
 面向固定 Argo Token 隧道的中文轻量安装脚本，提供：
 
 - VLESS + WS + TLS：`/argo-vl`
 - VMess + WS + TLS：`/argo-vm`
 - Trojan + WS + TLS：`/argo-tr`
-- 安装时可选 Sing-box 或 Xray 内核，三种 WS 节点、订阅与 Argo 接口保持一致
+- 安装及 `asb -c` 均可切换 Sing-box / Xray 内核，三种 WS 节点、订阅与 Argo 接口保持一致
 - 明文节点、终端及网页自动适配订阅 QR、原始订阅与 Base64 通用订阅
 
 TLS 由 Cloudflare 边缘终止；VPS 本机 Nginx 与所选代理内核仅监听回环地址。固定隧道必须在 Cloudflare Zero Trust 添加 Public Hostname，Service 指向 `http://localhost:3010`。Public Hostname 域名必须由安装者输入；Cloudflare 优选入口默认使用 `bestcf.cdn.fiatnorm.us.kg:443`，也可在安装或配置时修改。
@@ -35,7 +35,7 @@ chmod +x argo-singbox.sh
 sudo ./argo-singbox.sh -i
 ```
 
-安装时输入 Argo Token、Public Hostname，并以一行 `域名/IP:端口` 的形式输入 Cloudflare 优选入口，默认值为 `bestcf.cdn.fiatnorm.us.kg:443`。IPv6 使用 `[2001:db8::1]:443`。最后选择 `1` 使用默认 Sing-box，或选择 `2` 使用 Xray；重新执行 `asb -i` 可切换内核，原有节点和订阅地址不变。
+安装时输入 Argo Token、Public Hostname，并以一行 `域名/IP:端口` 的形式输入 Cloudflare 优选入口，默认值为 `bestcf.cdn.fiatnorm.us.kg:443`。IPv6 使用 `[2001:db8::1]:443`。最后选择 `1` 使用默认 Sing-box，或选择 `2` 使用 Xray；安装后可在 `asb -c` 的“切换代理核心”随时切换，原有节点、订阅地址和 Argo 配置不变。
 
 核心安装在项目私有目录：
 
@@ -43,6 +43,8 @@ sudo ./argo-singbox.sh -i
 /etc/asb/bin/sing-box
 /etc/asb/bin/xray
 /etc/asb/bin/cloudflared
+/etc/asb/sing-box.json
+/etc/asb/xray.json
 /etc/asb/nodes.txt
 /etc/asb/subscription.*
 /etc/asb/backup/
@@ -104,6 +106,10 @@ v2.11.8 收紧终端返回交互为仅输入 `0`；配置文件索引删除标�
 
 v2.11.9 配置文件索引中的每条订阅链接下方均显示白色分隔线，便于逐项辨识。
 
+v2.13.2 对齐 ArgoX 的 Xray WS 入站与 Nginx 长连接代理：VLESS 使用 `level: 0`、`decryption: none`，VMess 保持默认无传输安全层，VLESS/Trojan 显式 `security: none`，三个协议继续启用完整 sniffing；WS 反代统一关闭缓冲并设置 1 小时读写超时。订阅对三种协议保持 UDP 与 WebSocket 0-RTT 参数，VLESS 同时输出 XUDP（`packetEncoding=xudp` / `packet-encoding: xudp` / `packet_encoding: "xudp"`）；sing-box 订阅将 TLS 限定为 1.3。
+
+v2.13.1 将内核选择加入 `asb -c` 集中配置。首次安装同时保存项目私有的 Sing-box、Xray 二进制及 `/etc/asb/sing-box.json`、`/etc/asb/xray.json`；两个 JSON 都从同一份 `asb.env` 与 `nodes.conf` 生成并校验。旧安装首次切换到缺失核心时会下载并校验该核心，然后仅切换 `asb-sing-box.service` 的启动目标，不改变 Argo、Nginx、节点或订阅入口。
+
 v2.13.0 增加 Xray 内核适配。安装时可在 Sing-box 与 Xray 间选择，VLESS、VMess、Trojan 的 WS + TLS 节点继续共用 `nodes.conf`、Nginx 反代、固定 Argo Token 隧道和全部订阅入口。Xray 同样按 `WARP 目标域名 → 节点 SOCKS5 → direct` 生成路由，下载、配置检查、更新和回滚沿用项目的 SHA256、原子替换与项目专属服务边界；不引入 Reality、临时隧道或内置 WARP 凭据。
 v2.12.2 将首次安装和缺省环境配置中的 Cloudflare 优选入口统一为 `bestcf.cdn.fiatnorm.us.kg:443`，同时保留安装及集中配置时的自定义入口能力；同步更新 README、维护约束和终端 UI 示例。
 v2.12.1 在 v2.12.0 的 UI 收敛基础上补强配置事务：派生节点/订阅文件纳入回滚快照，订阅生成或服务验证失败时恢复完整运行面，并集中校验已有环境文件；状态行对 IPv6 优选入口统一显示为 `[地址]:端口`。同时保持 64 列分隔线、白色下划线 URL、唯一自动适配 QR 和节点专用备份边界不变。
@@ -111,7 +117,7 @@ v2.12.0 配置文件索引改为白色下划线 URL，不再输出整行链接�
 
 下载具有总超时、重试、GitHub 代理回退和 GitHub Release SHA256 digest 校验；二进制还会执行基本版本检查。Sing-box 版本优先采用上游 `force_version`，不可用时回退到 GitHub releases，再失败才使用脚本预设版本；Xray 从 `XTLS/Xray-core` 官方 Release 查询与校验。
 
-首次安装使用经过项目确认的 Sing-box `1.13.0-rc.4` 或 Xray `26.7.11`，避免安装时因远端版本变化产生不一致；cloudflared 首次安装按原版 SBA 逻辑使用 GitHub latest。后续执行 `asb -v` 时，脚本只查询和更新当前选择的代理内核。
+首次安装使用经过项目确认的 Sing-box `1.13.0-rc.4` 与 Xray `26.7.11`，避免安装时因远端版本变化产生不一致；cloudflared 首次安装按原版 SBA 逻辑使用 GitHub latest。后续执行 `asb -v` 时，脚本只查询和更新当前选择的代理内核。
 
 ## 是否需要反复拉取 GitHub
 
@@ -119,7 +125,7 @@ v2.12.0 配置文件索引改为白色下划线 URL，不再输出整行链接�
 
 以下操作仍会主动访问网络：
 
-- 首次安装或再次执行“安装 / 更新”：获取并校验最新 Argo-Singbox 脚本，再查询并下载所选代理内核和 cloudflared 官方发布物。
+- 首次安装或再次执行“安装 / 更新”：获取并校验最新 Argo-Singbox 脚本，再下载并校验 Sing-box、Xray 与 cloudflared 官方发布物。
 - `asb -v`：查询 GitHub Release/`force_version`，有更新并确认后下载核心。
 - 健康检查：访问 Cloudflare 公网入口。
 - 状态诊断：尝试访问 `api.ipify.org` 获取公网 IP，失败时自动使用本机地址。
@@ -152,7 +158,7 @@ sudo ./argo-singbox.sh -i
 | `sudo asb -n` | 显示全部节点、所有订阅地址及一张自动适配订阅 QR |
 | `sudo asb -a` | 开启或关闭 Argo/cloudflared 服务 |
 | `sudo asb -s` | 开启或关闭当前选择的 Sing-box / Xray 服务 |
-| `sudo asb -c` | 修改 Token、域名、优选入口、端口、UUID、节点、SOCKS5 和 WARP 域名 |
+| `sudo asb -c` | 修改 Token、域名、优选入口、端口、UUID、节点、SOCKS5、WARP 域名和代理内核 |
 | `sudo asb -r` | 重启 Nginx、当前代理内核和 Argo 服务 |
 | `sudo asb -x` | 执行完整诊断、WS 检查并显示最近日志 |
 | `sudo asb -v` | 比较版本并更新 Argo/cloudflared 与当前选择的代理内核 |
@@ -188,13 +194,17 @@ sudo ./argo-singbox.sh -i
 
 `asb -c` 集中修改 Token、Argo 域名、优选入口、Argo Tunnel 回源端口和全局 UUID，也可以添加、修改或删除 VLESS、VMess、Trojan 的 WS + TLS 节点。修改 Tunnel 回源端口时，节点监听端口从“回源端口 + 1”开始依次顺延；添加节点时默认使用当前最大监听端口的下一个端口。配置保存在 `/etc/asb/nodes.conf`。修改后还必须在 Cloudflare Public Hostname 中把 Service 同步为新的 `http://localhost:端口`。
 
+### 切换 Sing-box / Xray
+
+在 `asb -c` 选择“切换代理核心”，输入 `1` 为 Sing-box、`2` 为 Xray。两种核心共用 `/etc/asb/asb.env`、`/etc/asb/nodes.conf`、Nginx、Argo Tunnel 和订阅文件；`/etc/asb/sing-box.json` 与 `/etc/asb/xray.json` 始终分别保留。切换会先检查目标二进制，必要时从官方 Release 下载、校验并原子安装，然后同时重建和校验两套 JSON，最后重启同一个 `asb-sing-box.service`。失败会恢复切换前的环境、运行配置、服务文件和订阅文件。
+
 添加节点时可留空使用直连，也可输入 SOCKS5 出站：
 
 ```text
 203.0.113.10:1080:proxyuser:proxypass
 ```
 
-路由按节点 inbound tag 匹配，因此同一种协议的不同 WS 路径可以使用不同出口。SOCKS5 地址、端口、用户名和密码只写入权限为 `600` 的项目配置；节点分享链接不包含出站凭据。配置变更会依次执行当前内核配置检查、`nginx -t`、服务重启和状态验证，失败时恢复修改前文件。
+路由按节点 inbound tag 匹配，因此同一种协议的不同 WS 路径可以使用不同出口。SOCKS5 地址、端口、用户名和密码只写入权限为 `600` 的项目配置；节点分享链接不包含出站凭据。配置变更会重建所有已安装内核的配置并逐一检查、执行 `nginx -t`、重启服务和状态验证，失败时恢复修改前文件。
 
 集中配置中的基础项、节点操作和 WARP 子菜单均可输入 `0` 返回上级界面；返回时不会写入半成品配置。
 
@@ -249,6 +259,8 @@ https://你的域名/你的UUID/shadowrocket
 `/你的UUID` 会跳转到文件索引；索引 HTML 由 Nginx 直接返回，避免目录 URL 使用文件 `alias` 导致 500。`/auto` 根据 User-Agent 为 Clash/Mihomo、sing-box 和 Shadowrocket 返回对应格式，其他客户端返回 Base64 通用订阅。`/raw` 以及 `/etc/asb/nodes.txt` 保留逐行明文 `vless://`、`vmess://`、`trojan://` 节点协议。旧的 `/asb-sub` 与 `/asb-sub-base64` 入口继续可用。
 
 网页自动适配订阅 QR 由 `generate_nodes()` 生成，并通过订阅面板的 `/你的UUID/auto-qr.svg` 资源展示；终端仅输出这一张自动适配 QR，不为明文节点或其他独立配置重复生成二维码。
+
+Clash/Mihomo 的三种 WS 节点均显式 `udp: true`；VLESS 同时带 `packet-encoding: xudp`。明文 VLESS 链接带 `packetEncoding=xudp`，sing-box VLESS 出站带 `"packet_encoding":"xudp"`，并把 TLS 客户端版本限定为 `1.3`。VMess 与 Trojan 没有可互换的 XUDP 字段，仍通过各自协议的 UDP 支持和 TLS + WS 传输工作。服务端本机链路由 Cloudflare 边缘终止 TLS，故 Xray / Sing-box 入站继续为回环地址上的明文 WS；TLS 1.3 设置属于客户端订阅到 Cloudflare 边缘的连接。
 
 默认标签使用接近原版 SBA 的 `Argo-Vl`、`Argo-Vm`、`Argo-Tr` 后缀形式。`asb -c` 修改节点时可直接修改标签和协议；标签同时作为当前内核 inbound tag 和各客户端显示名称。
 

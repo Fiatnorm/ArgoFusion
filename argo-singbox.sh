@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-VERSION="2.13.0"
+VERSION="2.13.2"
 PROJECT_NAME="Argo-Singbox"
 COMMAND_NAME="asb"
 PROJECT_REPO="Fiatnorm/Argo-Singbox"
@@ -593,6 +593,11 @@ stage_xray() {
   local version="${1:-}" target="$2" archive temp_dir
   [[ -n "$version" ]] || version="$(get_xray_version)"
   [[ -n "$version" ]] || die "无法确定 Xray 版本。"
+  if ! command -v unzip >/dev/null 2>&1; then
+    info "正在安装 Xray 所需的 unzip..."
+    apt-get update
+    DEBIAN_FRONTEND=noninteractive apt-get install -y unzip
+  fi
   archive="$(mktemp --suffix=.zip)"
   download "https://github.com/XTLS/Xray-core/releases/download/v${version}/Xray-linux-${XRAY_ARCH}.zip" "$archive"
   verify_github_asset "$archive" "XTLS/Xray-core" "tags/v${version}" "Xray-linux-${XRAY_ARCH}.zip"
@@ -645,11 +650,47 @@ stage_core() {
   esac
 }
 
+ensure_core_binary() {
+  local requested="$1" target stage version
+  valid_core "$requested" || die "核心类型无效。"
+  case "$requested" in
+    sing-box)
+      target="${BIN_DIR}/sing-box"
+      version="$DEFAULT_SING_BOX_VERSION"
+      ;;
+    xray)
+      target="${BIN_DIR}/xray"
+      version="$DEFAULT_XRAY_VERSION"
+      ;;
+  esac
+  [[ -x "$target" ]] && return 0
+  detect_arch
+  stage="$(mktemp)"
+  info "正在补齐 ${requested} 核心..."
+  case "$requested" in
+    sing-box) stage_sing_box "$version" "$stage" ;;
+    xray) stage_xray "$version" "$stage" ;;
+  esac
+  install -m 755 "$stage" "${target}.new"
+  mv -f "${target}.new" "$target"
+  rm -f "$stage"
+}
+
+sing_box_check() {
+  local binary="${1:-${BIN_DIR}/sing-box}" config="${2:-$SING_BOX_CONFIG}"
+  "$binary" check -c "$config"
+}
+
+xray_check() {
+  local binary="${1:-${BIN_DIR}/xray}" config="${2:-$XRAY_CONFIG}"
+  "$binary" run -test -c "$config"
+}
+
 core_check() {
   local binary="${1:-$(core_binary)}" config="${2:-$(core_config)}"
   case "$CORE" in
-    sing-box) "$binary" check -c "$config" ;;
-    xray) "$binary" run -test -c "$config" ;;
+    sing-box) sing_box_check "$binary" "$config" ;;
+    xray) xray_check "$binary" "$config" ;;
     *) die "不支持的核心：${CORE}" ;;
   esac
 }
@@ -703,7 +744,7 @@ write_sing_box_config() {
   done <"$NODES_CONFIG"
   printf '],"final":"direct"}}\n' >>"$SING_BOX_CONFIG"
   chmod 600 "$SING_BOX_CONFIG"
-  core_check "$BIN_DIR/sing-box" "$SING_BOX_CONFIG"
+  sing_box_check "$BIN_DIR/sing-box" "$SING_BOX_CONFIG"
 }
 
 write_xray_config() {
@@ -718,9 +759,12 @@ write_xray_config() {
     case "$protocol" in
       trojan) printf '"settings":{"clients":[{"password":"%s"}]},' "$UUID" >>"$XRAY_CONFIG" ;;
       vmess) printf '"settings":{"clients":[{"id":"%s","alterId":0}]},' "$UUID" >>"$XRAY_CONFIG" ;;
-      vless) printf '"settings":{"clients":[{"id":"%s","flow":""}],"decryption":"none"},' "$UUID" >>"$XRAY_CONFIG" ;;
+      vless) printf '"settings":{"clients":[{"id":"%s","level":0}],"decryption":"none"},' "$UUID" >>"$XRAY_CONFIG" ;;
     esac
-    printf '"streamSettings":{"network":"ws","security":"none","wsSettings":{"path":"%s"}},' "$path" >>"$XRAY_CONFIG"
+    case "$protocol" in
+      vmess) printf '"streamSettings":{"network":"ws","wsSettings":{"path":"%s"}},' "$path" >>"$XRAY_CONFIG" ;;
+      *) printf '"streamSettings":{"network":"ws","security":"none","wsSettings":{"path":"%s"}},' "$path" >>"$XRAY_CONFIG" ;;
+    esac
     printf '"sniffing":{"enabled":true,"destOverride":["http","tls","quic"],"metadataOnly":false}}' >>"$XRAY_CONFIG"
   done <"$NODES_CONFIG"
   printf '\n],"outbounds":[{"protocol":"freedom","tag":"direct"}' >>"$XRAY_CONFIG"
@@ -756,7 +800,7 @@ write_xray_config() {
   done <"$NODES_CONFIG"
   printf ']}}\n' >>"$XRAY_CONFIG"
   chmod 600 "$XRAY_CONFIG"
-  core_check "$BIN_DIR/xray" "$XRAY_CONFIG"
+  xray_check "$BIN_DIR/xray" "$XRAY_CONFIG"
 }
 
 write_core_config() {
@@ -765,6 +809,21 @@ write_core_config() {
     xray) write_xray_config ;;
     *) die "不支持的核心：${CORE}" ;;
   esac
+}
+
+write_all_core_configs() {
+  [[ -x "${BIN_DIR}/sing-box" ]] || die "Sing-box 核心不存在。"
+  [[ -x "${BIN_DIR}/xray" ]] || die "Xray 核心不存在。"
+  write_sing_box_config
+  write_xray_config
+}
+
+write_available_core_configs() {
+  local current_binary
+  current_binary="$(core_binary)"
+  [[ -x "$current_binary" ]] || die "当前 $(core_label) 核心不存在。"
+  [[ -x "${BIN_DIR}/sing-box" ]] && write_sing_box_config
+  [[ -x "${BIN_DIR}/xray" ]] && write_xray_config
 }
 
 write_nginx_config() {
@@ -802,6 +861,9 @@ EOF
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header Host \$host;
         proxy_redirect off;
+        proxy_buffering off;
+        proxy_read_timeout 1h;
+        proxy_send_timeout 1h;
     }
 EOF
   done <"$NODES_CONFIG"
@@ -915,22 +977,16 @@ generate_nodes() {
   umask 077
   uri_server="$SERVER"
   [[ "$uri_server" == *:* ]] && uri_server="[${uri_server}]"
-  clash_early_data=""
-  sing_box_early_data=""
-  if [[ "$CORE" == "sing-box" ]]; then
-    clash_early_data=', max-early-data: 2560, early-data-header-name: Sec-WebSocket-Protocol'
-    sing_box_early_data=',"max_early_data":2560,"early_data_header_name":"Sec-WebSocket-Protocol"'
-  fi
+  clash_early_data=', max-early-data: 2560, early-data-header-name: Sec-WebSocket-Protocol'
+  sing_box_early_data=',"max_early_data":2560,"early_data_header_name":"Sec-WebSocket-Protocol"'
   : >"$NODES_FILE"
   while IFS='|' read -r tag protocol path port socks; do
     encoded_path="%2F${path#/}"
     vmess_path="$path"
-    if [[ "$CORE" == "sing-box" ]]; then
-      encoded_path+="%3Fed%3D2560"
-      vmess_path+="?ed=2560"
-    fi
+    encoded_path+="%3Fed%3D2560"
+    vmess_path+="?ed=2560"
     case "$protocol" in
-      vless) printf 'vless://%s@%s:%s?encryption=none&security=tls&sni=%s&insecure=0&allowInsecure=0&type=ws&host=%s&path=%s#%s\n' \
+      vless) printf 'vless://%s@%s:%s?encryption=none&security=tls&sni=%s&insecure=0&allowInsecure=0&type=ws&host=%s&path=%s&packetEncoding=xudp#%s\n' \
         "$UUID" "$uri_server" "$SERVER_PORT" "$ARGO_DOMAIN" "$ARGO_DOMAIN" "$encoded_path" "$tag" >>"$NODES_FILE" ;;
       trojan) printf 'trojan://%s@%s:%s?security=tls&sni=%s&insecure=0&allowInsecure=0&type=ws&host=%s&path=%s#%s\n' \
         "$UUID" "$uri_server" "$SERVER_PORT" "$ARGO_DOMAIN" "$ARGO_DOMAIN" "$encoded_path" "$tag" >>"$NODES_FILE" ;;
@@ -949,7 +1005,7 @@ generate_nodes() {
   printf 'proxies:\n' >"$SUB_CLASH_PROVIDER_FILE"
   while IFS='|' read -r tag protocol path port socks; do
     case "$protocol" in
-      vless) printf '  - {name: "%s", type: vless, server: "%s", port: %s, uuid: %s, encryption: none, udp: true, tls: true, servername: %s, skip-cert-verify: false, network: ws, ws-opts: {path: "%s", headers: {Host: %s}%s}}\n' \
+      vless) printf '  - {name: "%s", type: vless, server: "%s", port: %s, uuid: %s, encryption: none, udp: true, packet-encoding: xudp, tls: true, servername: %s, skip-cert-verify: false, network: ws, ws-opts: {path: "%s", headers: {Host: %s}%s}}\n' \
         "$tag" "$SERVER" "$SERVER_PORT" "$UUID" "$ARGO_DOMAIN" "$path" "$ARGO_DOMAIN" "$clash_early_data" ;;
       vmess) printf '  - {name: "%s", type: vmess, server: "%s", port: %s, uuid: %s, alterId: 0, cipher: auto, udp: true, tls: true, servername: %s, skip-cert-verify: false, network: ws, ws-opts: {path: "%s", headers: {Host: %s}%s}}\n' \
         "$tag" "$SERVER" "$SERVER_PORT" "$UUID" "$ARGO_DOMAIN" "$path" "$ARGO_DOMAIN" "$clash_early_data" ;;
@@ -975,7 +1031,7 @@ generate_nodes() {
       vmess) printf '"uuid":"%s","security":"auto","alter_id":0,' "$UUID" >>"$SUB_SING_BOX_FILE" ;;
       vless) printf '"uuid":"%s","flow":"","packet_encoding":"xudp",' "$UUID" >>"$SUB_SING_BOX_FILE" ;;
     esac
-    printf '"tls":{"enabled":true,"server_name":"%s","insecure":false,"utls":{"enabled":true,"fingerprint":"chrome"}},"transport":{"type":"ws","path":"%s","headers":{"Host":"%s"}%s}}' \
+    printf '"tls":{"enabled":true,"server_name":"%s","insecure":false,"min_version":"1.3","max_version":"1.3","utls":{"enabled":true,"fingerprint":"chrome"}},"transport":{"type":"ws","path":"%s","headers":{"Host":"%s"}%s}}' \
       "$ARGO_DOMAIN" "$path" "$ARGO_DOMAIN" "$sing_box_early_data" >>"$SUB_SING_BOX_FILE"
   done <"$NODES_CONFIG"
   printf ']}\n' >>"$SUB_SING_BOX_FILE"
@@ -1274,7 +1330,7 @@ show_install_nodes() {
 
 install_project() {
   local install_mode="${1:-local}" installer_source latest_installer
-  local work_backup="" core_stage argo_stage file core_target selected_core_version
+  local work_backup="" sing_box_stage xray_stage argo_stage file
   require_root
   control_panel
   subsection "安装 / 更新"
@@ -1315,20 +1371,20 @@ install_project() {
       cp -a "$file" "$work_backup/"
     fi
   done
-  core_stage="$(mktemp)"; argo_stage="$(mktemp)"
-  selected_core_version="$DEFAULT_SING_BOX_VERSION"
-  [[ "$CORE" == "xray" ]] && selected_core_version="$DEFAULT_XRAY_VERSION"
-  stage_core "$selected_core_version" "$core_stage"
+  sing_box_stage="$(mktemp)"; xray_stage="$(mktemp)"; argo_stage="$(mktemp)"
+  stage_sing_box "$DEFAULT_SING_BOX_VERSION" "$sing_box_stage"
+  stage_xray "$DEFAULT_XRAY_VERSION" "$xray_stage"
   stage_cloudflared "$argo_stage"
-  core_target="$(core_binary)"
-  install -m 755 "$core_stage" "${core_target}.new"
+  install -m 755 "$sing_box_stage" "${BIN_DIR}/sing-box.new"
+  install -m 755 "$xray_stage" "${BIN_DIR}/xray.new"
   install -m 755 "$argo_stage" "${BIN_DIR}/cloudflared.new"
-  mv -f "${core_target}.new" "$core_target"
+  mv -f "${BIN_DIR}/sing-box.new" "${BIN_DIR}/sing-box"
+  mv -f "${BIN_DIR}/xray.new" "${BIN_DIR}/xray"
   mv -f "${BIN_DIR}/cloudflared.new" "${BIN_DIR}/cloudflared"
-  rm -f "$core_stage" "$argo_stage"
+  rm -f "$sing_box_stage" "$xray_stage" "$argo_stage"
   printf 'version=%s\n' "$VERSION" >"$MANAGED_FILE"
   save_env
-  write_core_config
+  write_all_core_configs
   if [[ -f "$LEGACY_NGINX_CONFIG" ]] &&
     grep -q '/etc/sba/' "$LEGACY_NGINX_CONFIG" &&
     grep -qE '(/sba-sub|/sba-vl|/sba-vm|/sba-tr)' "$LEGACY_NGINX_CONFIG"; then
@@ -1413,7 +1469,7 @@ apply_runtime_config() {
   local snapshot="${CONFIG_SNAPSHOT:-}"
   [[ -n "$snapshot" && -d "$snapshot" ]] || die "缺少配置事务快照。"
   info "正在校验配置并重启服务..."
-  if save_env && write_core_config && write_nginx_config && write_services &&
+  if save_env && write_available_core_configs && write_nginx_config && write_services &&
     generate_nodes &&
     systemctl daemon-reload &&
     systemctl restart nginx "$SING_SERVICE" "$ARGO_SERVICE" && wait_for_services; then
@@ -1653,6 +1709,33 @@ configure_warp() {
   done
 }
 
+switch_proxy_core() {
+  local choice requested
+  require_root
+  load_env
+  brand "${PROJECT_NAME} · 切换代理核心"
+  key_value "当前核心" "$(core_label)"
+  key_value "共享配置" "asb.env / nodes.conf / Nginx / 订阅"
+  key_value "保留配置" "${SING_BOX_CONFIG} / ${XRAY_CONFIG}"
+  key_value "退出方式" "输入 0 返回"
+  read_input "请选择新核心 [1 Sing-box / 2 Xray]: " choice
+  is_exit_input "$choice" && { return_notice; return 0; }
+  case "$choice" in
+    1) requested="sing-box" ;;
+    2) requested="xray" ;;
+    *) yellow "核心选项无效，请输入 1、2 或 0。"; return 0 ;;
+  esac
+  if [[ "$requested" == "$CORE" ]]; then
+    yellow "当前已使用 $(core_label)，无需切换。"
+    return 0
+  fi
+  ensure_core_binary "$requested"
+  begin_config_change
+  CORE="$requested"
+  apply_runtime_config
+  green "已切换到 $(core_label)，两套核心配置均已保留。"
+}
+
 manage_config() {
   local choice value endpoint
   require_root
@@ -1672,6 +1755,7 @@ manage_config() {
     menu_item 7 "修改节点"
     menu_item 8 "删除节点"
     menu_item 9 "WARP 网址分流"
+    menu_item 10 "切换代理核心" "当前 $(core_label)"
     menu_item 0 "返回"
     ui_line
     read_choice "请选择："; choice="$REPLY"
@@ -1712,8 +1796,9 @@ manage_config() {
       7) edit_node_profile ;;
       8) delete_node_profile ;;
       9) configure_warp ;;
+      10) switch_proxy_core ;;
       0) return ;;
-      *) yellow "请输入 0 到 9。" ;;
+      *) yellow "请输入 0 到 10。" ;;
     esac
   done
 }
