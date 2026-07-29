@@ -1,23 +1,22 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-VERSION="2.13.4"
-PROJECT_NAME="Argo-Singbox"
-COMMAND_NAME="asb"
-PROJECT_REPO="Fiatnorm/Argo-Singbox"
+VERSION="2.14.0"
+PROJECT_NAME="ArgoFusion"
+COMMAND_NAME="af"
+PROJECT_REPO="Fiatnorm/ArgoFusion"
 PROJECT_BRANCH="main"
-WORK_DIR="/etc/asb"
+WORK_DIR="/etc/argofusion"
 WORK_DIR_NAME="${WORK_DIR##*/}"
-LEGACY_WORK_DIR="/etc/sba"
-ENV_FILE="${WORK_DIR}/asb.env"
+LEGACY_WORK_DIR="/etc/asb"
+ENV_FILE="${WORK_DIR}/argofusion.env"
 SING_BOX_CONFIG="${WORK_DIR}/sing-box.json"
 XRAY_CONFIG="${WORK_DIR}/xray.json"
-NGINX_CONFIG="/etc/nginx/conf.d/argo-singbox.conf"
-LEGACY_NGINX_CONFIG="/etc/nginx/conf.d/sba.conf"
+NGINX_CONFIG="/etc/nginx/conf.d/argofusion.conf"
+LEGACY_NGINX_CONFIG="/etc/nginx/conf.d/argo-singbox.conf"
 NODES_FILE="${WORK_DIR}/nodes.txt"
 LEGACY_NODES_FILE="/root/argo-singbox_nodes.txt"
-LEGACY_SBA_NODES_FILE="/root/sba_nodes.txt"
-LOCAL_SCRIPT="${WORK_DIR}/argo-singbox.sh"
+LOCAL_SCRIPT="${WORK_DIR}/argofusion.sh"
 BIN_DIR="${WORK_DIR}/bin"
 BACKUP_DIR="${WORK_DIR}/backup"
 MANAGED_FILE="${WORK_DIR}/managed"
@@ -29,10 +28,10 @@ SUB_CLASH_PROVIDER_FILE="${WORK_DIR}/subscription.proxies.yaml"
 SUB_SING_BOX_FILE="${WORK_DIR}/subscription.sing-box.json"
 SUB_SHADOWROCKET_FILE="${WORK_DIR}/subscription.shadowrocket"
 SUB_AUTO_QR_FILE="${WORK_DIR}/subscription.auto.svg"
-SING_SERVICE="asb-sing-box"
-ARGO_SERVICE="asb-cloudflared"
-LEGACY_SING_SERVICE="sba-sing-box"
-LEGACY_ARGO_SERVICE="sba-cloudflared"
+SING_SERVICE="argofusion-core"
+ARGO_SERVICE="argofusion-tunnel"
+LEGACY_SING_SERVICE="asb-sing-box"
+LEGACY_ARGO_SERVICE="asb-cloudflared"
 LEGACY_MIGRATED=0
 
 DEFAULT_SERVER="bestcf.cdn.fiatnorm.us.kg"
@@ -82,7 +81,6 @@ brand() {
   printf '\n%s%s◆ %s%s\n' "$C_BOLD" "$C_BRIGHT_MAGENTA" "$*" "$C_RESET"
   ui_line
 }
-group_title() { printf '%s%s%s%s\n' "$C_BOLD" "$C_BRIGHT_BLUE" "$*" "$C_RESET"; }
 system_summary() {
   local os="Linux" arch ip
   if [[ -r /etc/os-release ]]; then
@@ -422,9 +420,9 @@ fetch_latest_installer() {
   local target="$1" checksum expected attempt
   checksum="$(mktemp)"
   for attempt in {1..3}; do
-    download "https://raw.githubusercontent.com/${PROJECT_REPO}/${PROJECT_BRANCH}/argo-singbox.sh.sha256" "$checksum"
-    download "https://raw.githubusercontent.com/${PROJECT_REPO}/${PROJECT_BRANCH}/argo-singbox.sh" "$target"
-    expected="$(awk '$2 == "argo-singbox.sh" || $2 == "*argo-singbox.sh" {print $1; exit}' "$checksum")"
+    download "https://raw.githubusercontent.com/${PROJECT_REPO}/${PROJECT_BRANCH}/argofusion.sh.sha256" "$checksum"
+    download "https://raw.githubusercontent.com/${PROJECT_REPO}/${PROJECT_BRANCH}/argofusion.sh" "$target"
+    expected="$(awk '$2 == "argofusion.sh" || $2 == "*argofusion.sh" {print $1; exit}' "$checksum")"
     if [[ "$expected" =~ ^[a-fA-F0-9]{64}$ ]] &&
       printf '%s  %s\n' "$expected" "$target" | sha256sum -c - >/dev/null; then
       rm -f "$checksum"
@@ -511,10 +509,6 @@ ensure_warp_registration() {
   cat "$output" >&2
   rm -f "$output"
   die "WARP 客户端注册失败。"
-}
-
-version_gt() {
-  [[ "$1" != "$2" && "$(printf '%s\n%s\n' "$1" "$2" | sort -V | tail -n1)" == "$1" ]]
 }
 
 verify_github_asset() {
@@ -803,14 +797,6 @@ write_xray_config() {
   xray_check "$BIN_DIR/xray" "$XRAY_CONFIG"
 }
 
-write_core_config() {
-  case "$CORE" in
-    sing-box) write_sing_box_config ;;
-    xray) write_xray_config ;;
-    *) die "不支持的核心：${CORE}" ;;
-  esac
-}
-
 write_all_core_configs() {
   [[ -x "${BIN_DIR}/sing-box" ]] || die "Sing-box 核心不存在。"
   [[ -x "${BIN_DIR}/xray" ]] || die "Xray 核心不存在。"
@@ -837,7 +823,7 @@ map \$http_upgrade \$connection_upgrade {
     '' close;
 }
 
-map \$http_user_agent \$asb_subscription_file {
+map \$http_user_agent \$argofusion_subscription_file {
     default ${SUB_BASE64_FILE};
     ~*(clash|mihomo|stash) ${SUB_CLASH_FILE};
     ~*(sing-box|singbox|sfi|sfa|sfm) ${SUB_SING_BOX_FILE};
@@ -873,7 +859,7 @@ EOF
     }
     location = /${UUID}/ {
         default_type text/html;
-        return 200 '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Argo-Singbox 订阅面板</title><style>:root{color-scheme:light;--blue:#0969da;--blue2:#1d4ed8;--text:#172033;--muted:#5f6f89;--line:#d8e3f5;--bg:#fff}*{box-sizing:border-box}body{margin:0;background:var(--bg);font:16px/1.6 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--text)}main{max-width:860px;margin:32px auto;padding:0 18px 40px}h1{margin:0 0 8px;color:var(--blue);font-size:28px;letter-spacing:0}p{margin:0 0 18px;color:var(--muted)}.qr{display:flex;gap:18px;align-items:center;border:1px solid var(--line);border-radius:8px;padding:16px;margin:18px 0 20px}.qr img{width:168px;height:168px;image-rendering:pixelated}.qr a,.item{color:var(--blue);text-decoration:none}.qr a:hover,.item:hover{text-decoration:underline}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px}.item{display:block;border:1px solid var(--line);border-radius:8px;padding:12px 14px}.name{display:block;font-weight:700;color:var(--blue2)}.desc{display:block;margin-top:3px;color:var(--muted);font-size:13px}code{color:var(--blue);background:#eef6ff;padding:2px 6px;border-radius:5px}@media (max-width:560px){.qr{display:block}.qr img{width:150px;height:150px;margin-bottom:10px}}</style></head><body><main><h1>Argo-Singbox 订阅面板</h1><p>按客户端选择订阅。终端执行 <code>asb -n</code> 可查看订阅链接、自动适配 QR 和明文节点。</p><section class="qr"><a href="auto"><img src="auto-qr.svg" alt="自动适配订阅 QR"></a><div><span class="name">自动适配订阅 QR</span><span class="desc">扫码导入自动适配订阅；点击二维码打开订阅链接。</span><p><a href="auto">打开自动适配订阅</a></p></div></section><div class="grid"><a class="item" href="auto"><span class="name">自动适配订阅</span><span class="desc">根据客户端 User-Agent 返回合适格式</span></a><a class="item" href="raw"><span class="name">明文节点链接</span><span class="desc">逐行 vless / vmess / trojan 原始链接</span></a><a class="item" href="base64"><span class="name">Base64 通用订阅</span><span class="desc">V2rayN、NekoBox 等通用导入</span></a><a class="item" href="clash"><span class="name">Clash/Mihomo 订阅</span><span class="desc">完整 YAML 配置</span></a><a class="item" href="proxies"><span class="name">Clash Provider 订阅</span><span class="desc">仅代理节点列表</span></a><a class="item" href="sing-box"><span class="name">sing-box 订阅</span><span class="desc">JSON 出站配置</span></a><a class="item" href="shadowrocket"><span class="name">Shadowrocket 订阅</span><span class="desc">兼容 Shadowrocket 的 Base64 订阅</span></a></div></main></body></html>';
+        return 200 '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ArgoFusion 订阅面板</title><style>:root{color-scheme:light;--blue:#0969da;--blue2:#1d4ed8;--text:#172033;--muted:#5f6f89;--line:#d8e3f5;--bg:#fff}*{box-sizing:border-box}body{margin:0;background:var(--bg);font:16px/1.6 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--text)}main{max-width:860px;margin:32px auto;padding:0 18px 40px}h1{margin:0 0 8px;color:var(--blue);font-size:28px;letter-spacing:0}p{margin:0 0 18px;color:var(--muted)}.qr{display:flex;gap:18px;align-items:center;border:1px solid var(--line);border-radius:8px;padding:16px;margin:18px 0 20px}.qr img{width:168px;height:168px;image-rendering:pixelated}.qr a,.item{color:var(--blue);text-decoration:none}.qr a:hover,.item:hover{text-decoration:underline}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px}.item{display:block;border:1px solid var(--line);border-radius:8px;padding:12px 14px}.name{display:block;font-weight:700;color:var(--blue2)}.desc{display:block;margin-top:3px;color:var(--muted);font-size:13px}code{color:var(--blue);background:#eef6ff;padding:2px 6px;border-radius:5px}@media (max-width:560px){.qr{display:block}.qr img{width:150px;height:150px;margin-bottom:10px}}</style></head><body><main><h1>ArgoFusion 订阅面板</h1><p>按客户端选择订阅。终端执行 <code>af -n</code> 可查看订阅链接、自动适配 QR 和明文节点。</p><section class="qr"><a href="auto"><img src="auto-qr.svg" alt="自动适配订阅 QR"></a><div><span class="name">自动适配订阅 QR</span><span class="desc">扫码导入自动适配订阅；点击二维码打开订阅链接。</span><p><a href="auto">打开自动适配订阅</a></p></div></section><div class="grid"><a class="item" href="auto"><span class="name">自动适配订阅</span><span class="desc">根据客户端 User-Agent 返回合适格式</span></a><a class="item" href="raw"><span class="name">明文节点链接</span><span class="desc">逐行 vless / vmess / trojan 原始链接</span></a><a class="item" href="base64"><span class="name">Base64 通用订阅</span><span class="desc">V2rayN、NekoBox 等通用导入</span></a><a class="item" href="clash"><span class="name">Clash/Mihomo 订阅</span><span class="desc">完整 YAML 配置</span></a><a class="item" href="proxies"><span class="name">Clash Provider 订阅</span><span class="desc">仅代理节点列表</span></a><a class="item" href="sing-box"><span class="name">sing-box 订阅</span><span class="desc">JSON 出站配置</span></a><a class="item" href="shadowrocket"><span class="name">Shadowrocket 订阅</span><span class="desc">兼容 Shadowrocket 的 Base64 订阅</span></a></div></main></body></html>';
     }
     location = /${UUID}/auto-qr.svg {
         default_type image/svg+xml;
@@ -881,7 +867,7 @@ EOF
     }
     location = /${UUID}/auto {
         default_type text/plain;
-        alias \$asb_subscription_file;
+        alias \$argofusion_subscription_file;
     }
     location = /${UUID}/raw {
         default_type text/plain;
@@ -907,11 +893,11 @@ EOF
         default_type text/plain;
         alias ${SUB_SHADOWROCKET_FILE};
     }
-    location = /asb-sub {
+    location = /argofusion-sub {
         default_type text/plain;
         alias ${SUB_FILE};
     }
-    location = /asb-sub-base64 {
+    location = /argofusion-sub-base64 {
         default_type text/plain;
         alias ${SUB_BASE64_FILE};
     }
@@ -928,7 +914,7 @@ write_services() {
   label="$(core_label)"
   cat >"/etc/systemd/system/${SING_SERVICE}.service" <<EOF
 [Unit]
-Description=Argo-Singbox ${label} core
+Description=ArgoFusion ${label} core
 After=network-online.target
 Wants=network-online.target
 
@@ -950,7 +936,7 @@ EOF
 
   cat >"/etc/systemd/system/${ARGO_SERVICE}.service" <<EOF
 [Unit]
-Description=Argo-Singbox Cloudflare 固定隧道
+Description=ArgoFusion Cloudflare 固定隧道
 After=network-online.target nginx.service
 Wants=network-online.target
 
@@ -991,7 +977,7 @@ generate_nodes() {
       trojan) printf 'trojan://%s@%s:%s?security=tls&sni=%s&fp=chrome&alpn=http%%2F1.1&insecure=0&allowInsecure=0&type=ws&host=%s&path=%s#%s\n' \
         "$UUID" "$uri_server" "$SERVER_PORT" "$ARGO_DOMAIN" "$ARGO_DOMAIN" "$encoded_path" "$tag" >>"$NODES_FILE" ;;
       vmess)
-        vmess_json="{\"v\":\"2\",\"ps\":\"${tag}\",\"add\":\"${SERVER}\",\"port\":\"${SERVER_PORT}\",\"id\":\"${UUID}\",\"aid\":\"0\",\"scy\":\"auto\",\"net\":\"ws\",\"type\":\"none\",\"host\":\"${ARGO_DOMAIN}\",\"path\":\"${vmess_path}\",\"tls\":\"tls\",\"sni\":\"${ARGO_DOMAIN}\",\"fp\":\"chrome\",\"alpn\":\"http/1.1\",\"packetEncoding\":\"xudp\"}"
+        vmess_json="{\"v\":\"2\",\"ps\":\"${tag}\",\"add\":\"${SERVER}\",\"port\":\"${SERVER_PORT}\",\"id\":\"${UUID}\",\"aid\":\"0\",\"scy\":\"aes-128-gcm\",\"net\":\"ws\",\"type\":\"none\",\"host\":\"${ARGO_DOMAIN}\",\"path\":\"${vmess_path}\",\"tls\":\"tls\",\"sni\":\"${ARGO_DOMAIN}\",\"fp\":\"chrome\",\"alpn\":\"http/1.1\",\"packetEncoding\":\"xudp\"}"
         vmess_link="$(printf '%s' "$vmess_json" | base64 -w 0)"
         printf 'vmess://%s\n' "$vmess_link" >>"$NODES_FILE" ;;
     esac
@@ -1007,7 +993,7 @@ generate_nodes() {
     case "$protocol" in
       vless) printf '  - {name: "%s", type: vless, server: "%s", port: %s, uuid: %s, encryption: none, udp: true, packet-encoding: xudp, tls: true, servername: %s, client-fingerprint: chrome, alpn: [http/1.1], skip-cert-verify: false, network: ws, ws-opts: {path: "%s", headers: {Host: %s}%s}}\n' \
         "$tag" "$SERVER" "$SERVER_PORT" "$UUID" "$ARGO_DOMAIN" "$path" "$ARGO_DOMAIN" "$clash_early_data" ;;
-      vmess) printf '  - {name: "%s", type: vmess, server: "%s", port: %s, uuid: %s, alterId: 0, cipher: auto, udp: true, packet-encoding: xudp, tls: true, servername: %s, client-fingerprint: chrome, alpn: [http/1.1], skip-cert-verify: false, network: ws, ws-opts: {path: "%s", headers: {Host: %s}%s}}\n' \
+      vmess) printf '  - {name: "%s", type: vmess, server: "%s", port: %s, uuid: %s, alterId: 0, cipher: aes-128-gcm, udp: true, packet-encoding: xudp, tls: true, servername: %s, client-fingerprint: chrome, alpn: [http/1.1], skip-cert-verify: false, network: ws, ws-opts: {path: "%s", headers: {Host: %s}%s}}\n' \
         "$tag" "$SERVER" "$SERVER_PORT" "$UUID" "$ARGO_DOMAIN" "$path" "$ARGO_DOMAIN" "$clash_early_data" ;;
       trojan) printf '  - {name: "%s", type: trojan, server: "%s", port: %s, password: %s, udp: true, tls: true, sni: %s, client-fingerprint: chrome, alpn: [http/1.1], skip-cert-verify: false, network: ws, ws-opts: {path: "%s", headers: {Host: %s}%s}}\n' \
         "$tag" "$SERVER" "$SERVER_PORT" "$UUID" "$ARGO_DOMAIN" "$path" "$ARGO_DOMAIN" "$clash_early_data" ;;
@@ -1028,7 +1014,7 @@ generate_nodes() {
       "$protocol" "$tag" "$SERVER" "$SERVER_PORT" >>"$SUB_SING_BOX_FILE"
     case "$protocol" in
       trojan) printf '"password":"%s",' "$UUID" >>"$SUB_SING_BOX_FILE" ;;
-      vmess) printf '"uuid":"%s","security":"auto","alter_id":0,"packet_encoding":"xudp",' "$UUID" >>"$SUB_SING_BOX_FILE" ;;
+      vmess) printf '"uuid":"%s","security":"aes-128-gcm","alter_id":0,"packet_encoding":"xudp",' "$UUID" >>"$SUB_SING_BOX_FILE" ;;
       vless) printf '"uuid":"%s","flow":"","packet_encoding":"xudp",' "$UUID" >>"$SUB_SING_BOX_FILE" ;;
     esac
     printf '"tls":{"enabled":true,"server_name":"%s","insecure":false,"alpn":["http/1.1"],"utls":{"enabled":true,"fingerprint":"chrome"}},"transport":{"type":"ws","path":"%s","headers":{"Host":"%s"}%s}}' \
@@ -1042,11 +1028,13 @@ generate_nodes() {
 }
 
 create_local_command() {
-  local source_script="${1:-$0}"
+  local source_script="${1:-$0}" legacy_command
   install -m 755 "$source_script" "${LOCAL_SCRIPT}.new"
   mv -f "${LOCAL_SCRIPT}.new" "$LOCAL_SCRIPT"
   ln -sfn "$LOCAL_SCRIPT" "/usr/local/bin/${COMMAND_NAME}"
-  rm -f /usr/local/bin/sb /usr/local/bin/argo-singbox
+  for legacy_command in asb argo-singbox; do
+    [[ -L "/usr/local/bin/${legacy_command}" ]] && rm -f "/usr/local/bin/${legacy_command}"
+  done
 }
 
 sync_argo_domain() {
@@ -1182,14 +1170,14 @@ assert_service_names_available() {
   local unit marker
   for unit in "$SING_SERVICE" "$ARGO_SERVICE"; do
     marker="/etc/systemd/system/${unit}.service"
-    if [[ -e "$marker" ]] && ! grep -Eq "^Description=(SBA|Argo-Singbox) " "$marker"; then
+    if [[ -e "$marker" ]] && ! grep -Eq "^Description=(ArgoFusion|Argo-Singbox) " "$marker"; then
       die "检测到非本项目服务 ${unit}.service，安装已停止，未覆盖现有服务。"
     fi
   done
   for unit in sing-box cloudflared; do
     marker="/etc/systemd/system/${unit}.service"
     [[ -e "$marker" ]] || continue
-    if grep -Eq "^Description=(SBA|Argo-Singbox) " "$marker"; then
+    if grep -Eq "^Description=(ArgoFusion|Argo-Singbox) " "$marker"; then
       yellow "检测到本项目旧版 ${unit}.service，将迁移为项目专属服务名。"
       systemctl disable --now "$unit" 2>/dev/null || true
       rm -f "$marker"
@@ -1202,11 +1190,11 @@ assert_service_names_available() {
 is_project_service() {
   local unit_file="$1"
   [[ -f "$unit_file" ]] &&
-    grep -Eq '^Description=(SBA|Argo-Singbox) ' "$unit_file"
+    grep -Eq '^Description=(ArgoFusion|Argo-Singbox) ' "$unit_file"
 }
 
 migrate_legacy_install() {
-  local migration_backup temp legacy_target
+  local migration_backup legacy_file legacy_target
   [[ -d "$LEGACY_WORK_DIR" ]] || return 0
   if [[ -L "$LEGACY_WORK_DIR" ]]; then
     legacy_target="$(readlink -f "$LEGACY_WORK_DIR" 2>/dev/null || true)"
@@ -1222,21 +1210,14 @@ migrate_legacy_install() {
     die "${WORK_DIR} 与旧目录 ${LEGACY_WORK_DIR} 同时存在，请先人工核对，拒绝自动覆盖。"
   mv "$LEGACY_WORK_DIR" "$WORK_DIR"
   ln -s "$WORK_DIR" "$LEGACY_WORK_DIR"
-  migration_backup="${WORK_DIR}/backup/pre-asb-namespace"
+  migration_backup="${WORK_DIR}/backup/pre-argofusion-namespace"
   install -d -m 700 "$migration_backup"
-  [[ -f "${WORK_DIR}/sba.env" ]] && cp -a "${WORK_DIR}/sba.env" "$migration_backup/"
+  for legacy_file in asb.env argo-singbox.sh; do
+    [[ -f "${WORK_DIR}/${legacy_file}" ]] && cp -a "${WORK_DIR}/${legacy_file}" "$migration_backup/"
+  done
   [[ -f "$NODES_CONFIG" ]] && cp -a "$NODES_CONFIG" "$migration_backup/"
-  if [[ -f "${WORK_DIR}/sba.env" ]]; then
-    mv "${WORK_DIR}/sba.env" "$ENV_FILE"
-  fi
-  if [[ -f "$NODES_CONFIG" ]]; then
-    temp="$(mktemp)"
-    sed -e 's#|/sba-vl|#|/argo-vl|#g' \
-      -e 's#|/sba-vm|#|/argo-vm|#g' \
-      -e 's#|/sba-tr|#|/argo-tr|#g' "$NODES_CONFIG" >"$temp"
-    install -m 600 "$temp" "$NODES_CONFIG"
-    rm -f "$temp"
-  fi
+  [[ -f "${WORK_DIR}/asb.env" ]] && mv "${WORK_DIR}/asb.env" "$ENV_FILE"
+  [[ -f "${WORK_DIR}/argo-singbox.sh" ]] && mv "${WORK_DIR}/argo-singbox.sh" "$LOCAL_SCRIPT"
   LEGACY_MIGRATED=1
   green "已将旧安装目录迁移为 ${WORK_DIR}。"
 }
@@ -1286,7 +1267,7 @@ service_belongs_to_project() {
 stop_conflicting_sing_box_services() {
   local service
   systemctl stop "$SING_SERVICE" 2>/dev/null || true
-  for service in "$LEGACY_SING_SERVICE" sba-singbox sing-box; do
+  for service in "$LEGACY_SING_SERVICE" sing-box; do
     systemctl list-unit-files "${service}.service" --no-legend 2>/dev/null |
       grep -q "^${service}.service" || continue
     if service_belongs_to_project "$service"; then
@@ -1386,8 +1367,8 @@ install_project() {
   save_env
   write_all_core_configs
   if [[ -f "$LEGACY_NGINX_CONFIG" ]] &&
-    grep -q '/etc/sba/' "$LEGACY_NGINX_CONFIG" &&
-    grep -qE '(/sba-sub|/sba-vl|/sba-vm|/sba-tr)' "$LEGACY_NGINX_CONFIG"; then
+    grep -q '/etc/asb/' "$LEGACY_NGINX_CONFIG" &&
+    grep -qE '(/asb-sub|/argo-vl|/argo-vm|/argo-tr)' "$LEGACY_NGINX_CONFIG"; then
     rm -f "$LEGACY_NGINX_CONFIG"
   fi
   write_nginx_config
@@ -1417,7 +1398,7 @@ install_project() {
   systemctl daemon-reload
   sync_argo_domain
   generate_nodes
-  rm -f "$LEGACY_NODES_FILE" "$LEGACY_SBA_NODES_FILE"
+  rm -f "$LEGACY_NODES_FILE"
   if health_check; then
     green "${PROJECT_NAME} 安装 / 更新完成，核心链路检查通过。"
   else
@@ -1478,11 +1459,11 @@ apply_runtime_config() {
     return 0
   fi
   red "新配置验证失败，正在恢复。"
-  [[ -f "$snapshot/asb.env" ]] && install -m 600 "$snapshot/asb.env" "$ENV_FILE"
+  [[ -f "$snapshot/argofusion.env" ]] && install -m 600 "$snapshot/argofusion.env" "$ENV_FILE"
   [[ -f "$snapshot/nodes.conf" ]] && install -m 600 "$snapshot/nodes.conf" "$NODES_CONFIG"
   [[ -f "$snapshot/sing-box.json" ]] && install -m 600 "$snapshot/sing-box.json" "$SING_BOX_CONFIG"
   [[ -f "$snapshot/xray.json" ]] && install -m 600 "$snapshot/xray.json" "$XRAY_CONFIG"
-  [[ -f "$snapshot/argo-singbox.conf" ]] && install -m 644 "$snapshot/argo-singbox.conf" "$NGINX_CONFIG"
+  [[ -f "$snapshot/argofusion.conf" ]] && install -m 644 "$snapshot/argofusion.conf" "$NGINX_CONFIG"
   [[ -f "$snapshot/${SING_SERVICE}.service" ]] && install -m 600 "$snapshot/${SING_SERVICE}.service" "/etc/systemd/system/${SING_SERVICE}.service"
   [[ -f "$snapshot/${ARGO_SERVICE}.service" ]] && install -m 600 "$snapshot/${ARGO_SERVICE}.service" "/etc/systemd/system/${ARGO_SERVICE}.service"
   rm -f "$NODES_FILE" "$SUB_FILE" "$SUB_BASE64_FILE" "$SUB_CLASH_FILE" \
@@ -1715,7 +1696,7 @@ switch_proxy_core() {
   load_env
   brand "${PROJECT_NAME} · 切换代理核心"
   key_value "当前核心" "$(core_label)"
-  key_value "共享配置" "asb.env / nodes.conf / Nginx / 订阅"
+  key_value "共享配置" "argofusion.env / nodes.conf / Nginx / 订阅"
   key_value "保留配置" "${SING_BOX_CONFIG} / ${XRAY_CONFIG}"
   key_value "退出方式" "输入 0 返回"
   read_input "请选择新核心 [1 Sing-box / 2 Xray]: " choice
@@ -1827,7 +1808,7 @@ backup_project() {
       die "项目目录内仅允许使用默认备份目录 ${BACKUP_DIR}。"
     fi
     install -d -m 700 "$backup_dir"
-    output="${backup_dir}/asb-nodes-backup-$(date +%Y%m%d-%H%M%S).tar.gz"
+    output="${backup_dir}/argofusion-nodes-backup-$(date +%Y%m%d-%H%M%S).tar.gz"
   fi
   [[ "$output" == /* ]] || die "备份路径必须使用绝对路径。"
   [[ "$output" != "$WORK_DIR" ]] || die "备份不能直接保存到项目根目录。"
@@ -1837,7 +1818,7 @@ backup_project() {
   install -d -m 700 "$(dirname "$output")"
   [[ "$output" == *.tar.gz ]] || die "备份文件必须以 .tar.gz 结尾。"
   stage="$(mktemp -d)"
-  manifest_dir="${stage}/asb-nodes-backup"
+  manifest_dir="${stage}/argofusion-nodes-backup"
   install -d -m 700 "$manifest_dir"
   install -m 600 "$NODES_CONFIG" "${manifest_dir}/nodes.conf"
   {
@@ -1850,7 +1831,7 @@ backup_project() {
   chmod 600 "${manifest_dir}/manifest"
   temp_archive="$(mktemp --suffix=.tar.gz)"
   info "正在创建节点配置备份..."
-  if ! tar -C "$stage" -czf "$temp_archive" "asb-nodes-backup"; then
+  if ! tar -C "$stage" -czf "$temp_archive" "argofusion-nodes-backup"; then
     rm -rf "$stage"
     rm -f "$temp_archive"
     die "备份归档创建失败。"
@@ -1873,7 +1854,7 @@ validate_backup_archive() {
   if tar -tvzf "$archive" 2>/dev/null | awk 'substr($1,1,1) !~ /^[-d]$/ {bad=1} END {exit !bad}'; then
     die "备份归档包含符号链接或其他特殊文件，拒绝恢复。"
   fi
-  if ! grep -Eq '^(asb-nodes-backup|asb)/nodes\.conf$' <<<"$members"; then
+  if ! grep -Eq '^(argofusion-nodes-backup|argofusion|asb-nodes-backup|asb)/nodes\.conf$' <<<"$members"; then
     die "备份归档不包含可恢复的节点配置 nodes.conf。"
   fi
 }
@@ -1890,7 +1871,8 @@ restore_project() {
   fi
   if [[ -d "$archive" ]]; then
     latest="$(find "$archive" -maxdepth 1 -type f \
-      \( -name 'asb-nodes-backup-*.tar.gz' -o -name 'asb-backup-*.tar.gz' \) \
+      \( -name 'argofusion-nodes-backup-*.tar.gz' -o -name 'argofusion-backup-*.tar.gz' \
+        -o -name 'asb-nodes-backup-*.tar.gz' -o -name 'asb-backup-*.tar.gz' \) \
       -printf '%T@ %p\n' 2>/dev/null | sort -n | tail -n1 | cut -d' ' -f2-)"
     [[ -n "$latest" ]] || die "备份目录中没有可恢复的归档：${archive}"
     archive="$latest"
@@ -1904,11 +1886,17 @@ restore_project() {
   validate_backup_archive "$archive_copy"
   stage="$(mktemp -d)"
   tar --no-same-owner --no-same-permissions -xzf "$archive_copy" -C "$stage"
-  if [[ -f "$stage/asb-nodes-backup/nodes.conf" ]]; then
+  if [[ -f "$stage/argofusion-nodes-backup/nodes.conf" ]]; then
+    nodes_source="$stage/argofusion-nodes-backup/nodes.conf"
+  elif [[ -f "$stage/asb-nodes-backup/nodes.conf" ]]; then
     nodes_source="$stage/asb-nodes-backup/nodes.conf"
+    yellow "检测到 Argo-Singbox 节点备份，仅恢复其中的节点配置。"
   elif [[ -f "$stage/${WORK_DIR_NAME}/nodes.conf" ]]; then
     nodes_source="$stage/${WORK_DIR_NAME}/nodes.conf"
     yellow "检测到旧版完整备份，仅恢复其中的节点配置，不替换脚本或核心。"
+  elif [[ -f "$stage/asb/nodes.conf" ]]; then
+    nodes_source="$stage/asb/nodes.conf"
+    yellow "检测到 Argo-Singbox 完整备份，仅恢复其中的节点配置。"
   else
     rm -rf "$stage"; rm -f "$archive_copy"
     die "备份结构中缺少 nodes.conf。"
@@ -2210,8 +2198,8 @@ uninstall_project() {
   rm -f "/etc/systemd/system/${SING_SERVICE}.service" "/etc/systemd/system/${ARGO_SERVICE}.service"
   remove_legacy_services
   rm -f "$NGINX_CONFIG" "$LEGACY_NGINX_CONFIG" "/usr/local/bin/${COMMAND_NAME}" \
-    "$NODES_FILE" "$LEGACY_NODES_FILE" "$LEGACY_SBA_NODES_FILE"
-  for legacy_link in /usr/local/bin/sb /usr/local/bin/argo-singbox; do
+    "$NODES_FILE" "$LEGACY_NODES_FILE"
+  for legacy_link in /usr/local/bin/asb /usr/local/bin/argo-singbox; do
     [[ -L "$legacy_link" ]] || continue
     target="$(readlink -f "$legacy_link" 2>/dev/null || true)"
     [[ "$target" == "$LOCAL_SCRIPT" ]] && rm -f "$legacy_link"
