@@ -1,4 +1,4 @@
-# Argo-Singbox v2.13.3
+# Argo-Singbox v2.13.4
 
 面向固定 Argo Token 隧道的中文轻量安装脚本，提供：
 
@@ -105,6 +105,8 @@ v2.11.7 根据测试清单继续优化终端 UI：系统 IP 使用紫色、运�
 v2.11.8 收紧终端返回交互为仅输入 `0`；配置文件索引删除标题前空行并在订阅列表末尾增加白色分隔线。所有显示的优选入口 IP、公网 IP 与本机 IP 统一使用亮紫色。
 
 v2.11.9 配置文件索引中的每条订阅链接下方均显示白色分隔线，便于逐项辨识。
+
+v2.13.4 将 Sing-box 的离线回退版本更新到官方最新稳定版 `1.13.14`；联网时仍优先从官方 Releases 查询最新版本。sing-box 订阅生成的 WS `headers.Host` 保持为动态 Argo 域名的字符串；应以订阅源 JSON 为准，不以客户端导入后的显示类型判断生成字段。
 
 v2.13.3 为订阅中的 VLESS、VMess、Trojan 统一设置 Chrome 指纹与 `http/1.1` ALPN；VMess 同时输出 XUDP（`packetEncoding=xudp` / `packet-encoding: xudp` / `packet_encoding: "xudp"`）。sing-box 不再限制 TLS 版本，交由客户端与核心使用默认协商范围；WS `headers.Host` 保持为动态 Argo 域名的字符串而不是数组。
 
