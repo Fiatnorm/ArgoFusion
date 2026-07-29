@@ -1,4 +1,4 @@
-# Argo-Singbox v2.13.2
+# Argo-Singbox v2.13.3
 
 面向固定 Argo Token 隧道的中文轻量安装脚本，提供：
 
@@ -106,7 +106,9 @@ v2.11.8 收紧终端返回交互为仅输入 `0`；配置文件索引删除标�
 
 v2.11.9 配置文件索引中的每条订阅链接下方均显示白色分隔线，便于逐项辨识。
 
-v2.13.2 对齐 ArgoX 的 Xray WS 入站与 Nginx 长连接代理：VLESS 使用 `level: 0`、`decryption: none`，VMess 保持默认无传输安全层，VLESS/Trojan 显式 `security: none`，三个协议继续启用完整 sniffing；WS 反代统一关闭缓冲并设置 1 小时读写超时。订阅对三种协议保持 UDP 与 WebSocket 0-RTT 参数，VLESS 同时输出 XUDP（`packetEncoding=xudp` / `packet-encoding: xudp` / `packet_encoding: "xudp"`）；sing-box 订阅将 TLS 限定为 1.3。
+v2.13.3 为订阅中的 VLESS、VMess、Trojan 统一设置 Chrome 指纹与 `http/1.1` ALPN；VMess 同时输出 XUDP（`packetEncoding=xudp` / `packet-encoding: xudp` / `packet_encoding: "xudp"`）。sing-box 不再限制 TLS 版本，交由客户端与核心使用默认协商范围；WS `headers.Host` 保持为动态 Argo 域名的字符串而不是数组。
+
+v2.13.2 对齐 ArgoX 的 Xray WS 入站与 Nginx 长连接代理：VLESS 使用 `level: 0`、`decryption: none`，VMess 保持默认无传输安全层，VLESS/Trojan 显式 `security: none`，三个协议继续启用完整 sniffing；WS 反代统一关闭缓冲并设置 1 小时读写超时。订阅对三种协议保持 UDP 与 WebSocket 0-RTT 参数，VLESS 同时输出 XUDP（`packetEncoding=xudp` / `packet-encoding: xudp` / `packet_encoding: "xudp"`）。
 
 v2.13.1 将内核选择加入 `asb -c` 集中配置。首次安装同时保存项目私有的 Sing-box、Xray 二进制及 `/etc/asb/sing-box.json`、`/etc/asb/xray.json`；两个 JSON 都从同一份 `asb.env` 与 `nodes.conf` 生成并校验。旧安装首次切换到缺失核心时会下载并校验该核心，然后仅切换 `asb-sing-box.service` 的启动目标，不改变 Argo、Nginx、节点或订阅入口。
 
@@ -260,7 +262,7 @@ https://你的域名/你的UUID/shadowrocket
 
 网页自动适配订阅 QR 由 `generate_nodes()` 生成，并通过订阅面板的 `/你的UUID/auto-qr.svg` 资源展示；终端仅输出这一张自动适配 QR，不为明文节点或其他独立配置重复生成二维码。
 
-Clash/Mihomo 的三种 WS 节点均显式 `udp: true`；VLESS 同时带 `packet-encoding: xudp`。明文 VLESS 链接带 `packetEncoding=xudp`，sing-box VLESS 出站带 `"packet_encoding":"xudp"`，并把 TLS 客户端版本限定为 `1.3`。VMess 与 Trojan 没有可互换的 XUDP 字段，仍通过各自协议的 UDP 支持和 TLS + WS 传输工作。服务端本机链路由 Cloudflare 边缘终止 TLS，故 Xray / Sing-box 入站继续为回环地址上的明文 WS；TLS 1.3 设置属于客户端订阅到 Cloudflare 边缘的连接。
+Clash/Mihomo 的三种 WS 节点均显式 `udp: true`，并统一输出 Chrome 指纹与 `http/1.1` ALPN；VLESS、VMess 同时带 `packet-encoding: xudp`。明文 VLESS 链接带 `packetEncoding=xudp`；兼容该扩展字段的 Base64 VMess 分享链接也带 `packetEncoding=xudp`；sing-box 的 VLESS、VMess 出站均带 `"packet_encoding":"xudp"`。sing-box TLS 不设置 `min_version` 或 `max_version`，由核心默认协商版本范围；其 WS `headers.Host` 为动态 Argo 域名的单个字符串。Trojan 没有 XUDP 字段，仍通过协议自身的 UDP 支持和 TLS + WS 传输工作。服务端本机链路由 Cloudflare 边缘终止 TLS，故 Xray / Sing-box 入站继续为回环地址上的明文 WS。
 
 默认标签使用接近原版 SBA 的 `Argo-Vl`、`Argo-Vm`、`Argo-Tr` 后缀形式。`asb -c` 修改节点时可直接修改标签和协议；标签同时作为当前内核 inbound tag 和各客户端显示名称。
 

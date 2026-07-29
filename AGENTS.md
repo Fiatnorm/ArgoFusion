@@ -40,7 +40,7 @@
 
 其中协议仅允许 `vless`、`vmess`、`trojan`；SOCKS5 留空表示 direct，否则格式为 `主机:端口:用户名:密码`。标签、WS 路径和本地端口必须全局唯一。改变该格式时必须同时迁移旧文件，不能静默破坏已有节点。
 
-生成文件包括明文节点、Base64、Clash/Mihomo、Clash Provider、sing-box、Shadowrocket 订阅和自动适配订阅 QR。它们是派生数据，应由 `generate_nodes()` 统一重建，不应成为独立配置源。Clash/Mihomo 三种 WS 节点必须显式启用 UDP；VLESS 订阅必须保留 XUDP（`packetEncoding=xudp`、`packet-encoding: xudp`、`packet_encoding: "xudp"`）与 sing-box TLS 1.3 限制。
+生成文件包括明文节点、Base64、Clash/Mihomo、Clash Provider、sing-box、Shadowrocket 订阅和自动适配订阅 QR。它们是派生数据，应由 `generate_nodes()` 统一重建，不应成为独立配置源。Clash/Mihomo 三种 WS 节点必须显式启用 UDP，并使用 Chrome 指纹和 `http/1.1` ALPN；VLESS、VMess 订阅必须保留 XUDP（`packetEncoding=xudp`、`packet-encoding: xudp`、`packet_encoding: "xudp"`）。sing-box TLS 保持核心默认版本协商，WS `headers.Host` 必须是字符串。
 
 ## 关键函数职责
 

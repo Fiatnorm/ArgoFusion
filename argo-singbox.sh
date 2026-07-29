@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-VERSION="2.13.2"
+VERSION="2.13.3"
 PROJECT_NAME="Argo-Singbox"
 COMMAND_NAME="asb"
 PROJECT_REPO="Fiatnorm/Argo-Singbox"
@@ -986,12 +986,12 @@ generate_nodes() {
     encoded_path+="%3Fed%3D2560"
     vmess_path+="?ed=2560"
     case "$protocol" in
-      vless) printf 'vless://%s@%s:%s?encryption=none&security=tls&sni=%s&insecure=0&allowInsecure=0&type=ws&host=%s&path=%s&packetEncoding=xudp#%s\n' \
+      vless) printf 'vless://%s@%s:%s?encryption=none&security=tls&sni=%s&fp=chrome&alpn=http%%2F1.1&insecure=0&allowInsecure=0&type=ws&host=%s&path=%s&packetEncoding=xudp#%s\n' \
         "$UUID" "$uri_server" "$SERVER_PORT" "$ARGO_DOMAIN" "$ARGO_DOMAIN" "$encoded_path" "$tag" >>"$NODES_FILE" ;;
-      trojan) printf 'trojan://%s@%s:%s?security=tls&sni=%s&insecure=0&allowInsecure=0&type=ws&host=%s&path=%s#%s\n' \
+      trojan) printf 'trojan://%s@%s:%s?security=tls&sni=%s&fp=chrome&alpn=http%%2F1.1&insecure=0&allowInsecure=0&type=ws&host=%s&path=%s#%s\n' \
         "$UUID" "$uri_server" "$SERVER_PORT" "$ARGO_DOMAIN" "$ARGO_DOMAIN" "$encoded_path" "$tag" >>"$NODES_FILE" ;;
       vmess)
-        vmess_json="{\"v\":\"2\",\"ps\":\"${tag}\",\"add\":\"${SERVER}\",\"port\":\"${SERVER_PORT}\",\"id\":\"${UUID}\",\"aid\":\"0\",\"scy\":\"auto\",\"net\":\"ws\",\"type\":\"none\",\"host\":\"${ARGO_DOMAIN}\",\"path\":\"${vmess_path}\",\"tls\":\"tls\",\"sni\":\"${ARGO_DOMAIN}\",\"alpn\":\"\"}"
+        vmess_json="{\"v\":\"2\",\"ps\":\"${tag}\",\"add\":\"${SERVER}\",\"port\":\"${SERVER_PORT}\",\"id\":\"${UUID}\",\"aid\":\"0\",\"scy\":\"auto\",\"net\":\"ws\",\"type\":\"none\",\"host\":\"${ARGO_DOMAIN}\",\"path\":\"${vmess_path}\",\"tls\":\"tls\",\"sni\":\"${ARGO_DOMAIN}\",\"fp\":\"chrome\",\"alpn\":\"http/1.1\",\"packetEncoding\":\"xudp\"}"
         vmess_link="$(printf '%s' "$vmess_json" | base64 -w 0)"
         printf 'vmess://%s\n' "$vmess_link" >>"$NODES_FILE" ;;
     esac
@@ -1005,11 +1005,11 @@ generate_nodes() {
   printf 'proxies:\n' >"$SUB_CLASH_PROVIDER_FILE"
   while IFS='|' read -r tag protocol path port socks; do
     case "$protocol" in
-      vless) printf '  - {name: "%s", type: vless, server: "%s", port: %s, uuid: %s, encryption: none, udp: true, packet-encoding: xudp, tls: true, servername: %s, skip-cert-verify: false, network: ws, ws-opts: {path: "%s", headers: {Host: %s}%s}}\n' \
+      vless) printf '  - {name: "%s", type: vless, server: "%s", port: %s, uuid: %s, encryption: none, udp: true, packet-encoding: xudp, tls: true, servername: %s, client-fingerprint: chrome, alpn: [http/1.1], skip-cert-verify: false, network: ws, ws-opts: {path: "%s", headers: {Host: %s}%s}}\n' \
         "$tag" "$SERVER" "$SERVER_PORT" "$UUID" "$ARGO_DOMAIN" "$path" "$ARGO_DOMAIN" "$clash_early_data" ;;
-      vmess) printf '  - {name: "%s", type: vmess, server: "%s", port: %s, uuid: %s, alterId: 0, cipher: auto, udp: true, tls: true, servername: %s, skip-cert-verify: false, network: ws, ws-opts: {path: "%s", headers: {Host: %s}%s}}\n' \
+      vmess) printf '  - {name: "%s", type: vmess, server: "%s", port: %s, uuid: %s, alterId: 0, cipher: auto, udp: true, packet-encoding: xudp, tls: true, servername: %s, client-fingerprint: chrome, alpn: [http/1.1], skip-cert-verify: false, network: ws, ws-opts: {path: "%s", headers: {Host: %s}%s}}\n' \
         "$tag" "$SERVER" "$SERVER_PORT" "$UUID" "$ARGO_DOMAIN" "$path" "$ARGO_DOMAIN" "$clash_early_data" ;;
-      trojan) printf '  - {name: "%s", type: trojan, server: "%s", port: %s, password: %s, udp: true, tls: true, sni: %s, skip-cert-verify: false, network: ws, ws-opts: {path: "%s", headers: {Host: %s}%s}}\n' \
+      trojan) printf '  - {name: "%s", type: trojan, server: "%s", port: %s, password: %s, udp: true, tls: true, sni: %s, client-fingerprint: chrome, alpn: [http/1.1], skip-cert-verify: false, network: ws, ws-opts: {path: "%s", headers: {Host: %s}%s}}\n' \
         "$tag" "$SERVER" "$SERVER_PORT" "$UUID" "$ARGO_DOMAIN" "$path" "$ARGO_DOMAIN" "$clash_early_data" ;;
     esac
   done <"$NODES_CONFIG" >>"$SUB_CLASH_PROVIDER_FILE"
@@ -1028,10 +1028,10 @@ generate_nodes() {
       "$protocol" "$tag" "$SERVER" "$SERVER_PORT" >>"$SUB_SING_BOX_FILE"
     case "$protocol" in
       trojan) printf '"password":"%s",' "$UUID" >>"$SUB_SING_BOX_FILE" ;;
-      vmess) printf '"uuid":"%s","security":"auto","alter_id":0,' "$UUID" >>"$SUB_SING_BOX_FILE" ;;
+      vmess) printf '"uuid":"%s","security":"auto","alter_id":0,"packet_encoding":"xudp",' "$UUID" >>"$SUB_SING_BOX_FILE" ;;
       vless) printf '"uuid":"%s","flow":"","packet_encoding":"xudp",' "$UUID" >>"$SUB_SING_BOX_FILE" ;;
     esac
-    printf '"tls":{"enabled":true,"server_name":"%s","insecure":false,"min_version":"1.3","max_version":"1.3","utls":{"enabled":true,"fingerprint":"chrome"}},"transport":{"type":"ws","path":"%s","headers":{"Host":"%s"}%s}}' \
+    printf '"tls":{"enabled":true,"server_name":"%s","insecure":false,"alpn":["http/1.1"],"utls":{"enabled":true,"fingerprint":"chrome"}},"transport":{"type":"ws","path":"%s","headers":{"Host":"%s"}%s}}' \
       "$ARGO_DOMAIN" "$path" "$ARGO_DOMAIN" "$sing_box_early_data" >>"$SUB_SING_BOX_FILE"
   done <"$NODES_CONFIG"
   printf ']}\n' >>"$SUB_SING_BOX_FILE"
