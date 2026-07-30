@@ -1,4 +1,4 @@
-# ArgoFusion v2.14.3
+# ArgoFusion v2.14.5
 
 面向固定 Argo Token 隧道的中文轻量安装脚本，提供：
 
@@ -45,6 +45,8 @@ sudo ./argofusion.sh -i
 从 Argo-Singbox 升级时，脚本仅在 `/etc/asb/managed` 所有权标记有效且 `/etc/argofusion` 不存在时，将旧目录迁移为 `/etc/argofusion`，把 `asb.env` 与 `argo-singbox.sh` 分别改名为 `argofusion.env` 与 `argofusion.sh`，并临时保留兼容链接。新服务验证通过后才移除属于本项目的旧 `asb-*` 服务和兼容链接；失败则恢复旧服务。两个真实目录同时存在或旧目录没有所有权标记时会停止并要求人工核对。
 
 迁移会先停止旧服务并等待节点端口释放，再启动新服务；若新服务启动失败，会先停用新服务再恢复旧服务，避免两套 sing-box 同时抢占节点端口。重新执行 v2.8.2 安装可修复旧版迁移失败后形成的新旧服务端口冲突。
+
+v2.14.5 修复重整目录后的订阅 403：`/etc/argofusion/subscriptions/` 由 Nginx 通过 `alias` 对外提供，目录权限改为 `755`，使 Nginx 工作进程可以读取订阅、二维码和自动适配文件；`config/`、`data/` 仍保持 `700` 私有权限。重新安装或更新安装会自动修正已有目录权限。
 
 v2.14.3 重整 VPS 项目目录：环境、节点定义与两套核心 JSON 迁入 `/etc/argofusion/config/`，明文节点迁入 `/etc/argofusion/data/`，各类订阅和自动适配 QR 迁入 `/etc/argofusion/subscriptions/`。升级安装会先核对同名文件内容，拒绝覆盖冲突或异常文件类型，再迁移并重建 Nginx、核心服务与订阅；外部订阅 URL 保持不变。
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-VERSION="2.14.4"
+VERSION="2.14.5"
 PROJECT_NAME="ArgoFusion"
 COMMAND_NAME="af"
 PROJECT_REPO="Fiatnorm/ArgoFusion"
@@ -251,7 +251,8 @@ load_env() {
 }
 
 ensure_project_layout() {
-  install -d -m 700 "$CONFIG_DIR" "$DATA_DIR" "$SUBSCRIPTION_DIR"
+  install -d -m 700 "$CONFIG_DIR" "$DATA_DIR"
+  install -d -m 755 "$SUBSCRIPTION_DIR"
 }
 
 verify_project_file_relocation() {
