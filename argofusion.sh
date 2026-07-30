@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-VERSION="2.14.1"
+VERSION="2.14.2"
 PROJECT_NAME="ArgoFusion"
 COMMAND_NAME="af"
 PROJECT_REPO="Fiatnorm/ArgoFusion"
@@ -516,18 +516,16 @@ verify_github_asset() {
   metadata="$(mktemp)"
   download "https://api.github.com/repos/${repo}/releases/${release}" "$metadata"
   expected="$(awk -v wanted="$asset_name" '
-    /"name":/ {
-      line=$0
-      sub(/^.*"name":[[:space:]]*"/, "", line)
-      sub(/".*$/, "", line)
-      matched=(line == wanted)
-    }
-    matched && /"digest":[[:space:]]*"sha256:/ {
-      line=$0
-      sub(/^.*"digest":[[:space:]]*"sha256:/, "", line)
-      sub(/".*$/, "", line)
-      print line
-      exit
+    { payload = payload $0 }
+    END {
+      name_pattern = "\"name\"[[:space:]]*:[[:space:]]*\"" wanted "\""
+      if (!match(payload, name_pattern)) exit
+      remainder = substr(payload, RSTART + RLENGTH)
+      if (!match(remainder, /"digest"[[:space:]]*:[[:space:]]*"sha256:[^"]+"/)) exit
+      digest = substr(remainder, RSTART, RLENGTH)
+      sub(/^.*sha256:/, "", digest)
+      sub(/".*$/, "", digest)
+      print digest
     }' "$metadata")"
   rm -f "$metadata"
   [[ "$expected" =~ ^[a-fA-F0-9]{64}$ ]] || die "GitHub 未提供 ${asset_name} 的 SHA256，拒绝安装。"
