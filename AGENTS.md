@@ -18,10 +18,12 @@
 - `/etc/argofusion/bin/sing-box`
 - `/etc/argofusion/bin/xray`
 - `/etc/argofusion/bin/cloudflared`
-- `/etc/argofusion/argofusion.env`
-- `/etc/argofusion/nodes.conf`
-- `/etc/argofusion/nodes.txt`
-- `/etc/argofusion/subscription.*`
+- `/etc/argofusion/config/argofusion.env`
+- `/etc/argofusion/config/nodes.conf`
+- `/etc/argofusion/config/sing-box.json`
+- `/etc/argofusion/config/xray.json`
+- `/etc/argofusion/data/nodes.txt`
+- `/etc/argofusion/subscriptions/subscription.*`
 - `/etc/argofusion/backup/`
 - `/etc/nginx/conf.d/argofusion.conf`
 - `/etc/systemd/system/argofusion-core.service`
@@ -30,9 +32,9 @@
 
 ## 配置与数据格式
 
-`/etc/argofusion/argofusion.env` 由脚本生成并通过 Bash `source` 读取，保存 UUID、Argo 域名、优选入口、Token、回源端口、WARP 配置和当前 `CORE` 选择。必须使用安全转义、`600` 权限和同目录临时文件原子替换；不得把未经验证的用户输入直接拼入该文件或 systemd unit。
+`/etc/argofusion/config/argofusion.env` 由脚本生成并通过 Bash `source` 读取，保存 UUID、Argo 域名、优选入口、Token、回源端口、WARP 配置和当前 `CORE` 选择。必须使用安全转义、`600` 权限和同目录临时文件原子替换；不得把未经验证的用户输入直接拼入该文件或 systemd unit。
 
-`/etc/argofusion/nodes.conf` 每行格式为：
+`/etc/argofusion/config/nodes.conf` 每行格式为：
 
 ```text
 标签|协议|WS路径|本地端口|SOCKS5
@@ -40,7 +42,7 @@
 
 其中协议仅允许 `vless`、`vmess`、`trojan`；SOCKS5 留空表示 direct，否则格式为 `主机:端口:用户名:密码`。标签、WS 路径和本地端口必须全局唯一。改变该格式时必须同时迁移旧文件，不能静默破坏已有节点。
 
-生成文件包括明文节点、Base64、Clash/Mihomo、Clash Provider、sing-box、Shadowrocket 订阅和自动适配订阅 QR。它们是派生数据，应由 `generate_nodes()` 统一重建，不应成为独立配置源。Clash/Mihomo 三种 WS 节点必须显式启用 UDP，并使用 Chrome 指纹和 `http/1.1` ALPN；VLESS、VMess 订阅必须保留 XUDP（`packetEncoding=xudp`、`packet-encoding: xudp`、`packet_encoding: "xudp"`）。sing-box TLS 保持核心默认版本协商，WS `headers.Host` 必须是字符串。
+生成文件包括明文节点、Base64、Clash/Mihomo、Clash Provider、sing-box、Shadowrocket 订阅和自动适配订阅 QR。它们是派生数据，应由 `generate_nodes()` 统一重建，不应成为独立配置源。`config/` 与 `data/` 必须保持 `700`，但 `/etc/argofusion/subscriptions/` 必须为 `755`，否则 Nginx 工作进程无法读取 `alias` 订阅文件而返回 403。Clash/Mihomo 三种 WS 节点必须显式启用 UDP，并使用 Chrome 指纹和 `http/1.1` ALPN；VLESS、VMess 订阅必须保留 XUDP（`packetEncoding=xudp`、`packet-encoding: xudp`、`packet_encoding: "xudp"`）。sing-box TLS 保持核心默认版本协商，WS `headers.Host` 必须是字符串。
 
 ## 关键函数职责
 
@@ -105,11 +107,11 @@
 - `af -n` 必须输出当前全部订阅链接、唯一一张自动适配订阅 QR 和明文节点；不得为其他订阅或单个节点重复输出 QR。自动适配订阅 QR 同时显示在网页订阅面板中，并作为单独的 `/auto-qr.svg` 订阅面板资源提供。
 - 节点连接地址使用优选入口，WebSocket Host 与 TLS SNI 使用 Argo 域名。
 - 修改 Token 或优选入口后，应重新生成节点并执行健康检查。
-- 健康检查必须测试 `/etc/argofusion/nodes.conf` 中的全部 WS 路径，默认包括 `/argo-vl`、`/argo-vm`、`/argo-tr`。
+- 健康检查必须测试 `/etc/argofusion/config/nodes.conf` 中的全部 WS 路径，默认包括 `/argo-vl`、`/argo-vm`、`/argo-tr`。
 - `af -c` 必须集中管理 Token、Argo 域名、优选入口、本地端口、UUID、动态节点、节点 SOCKS5 出站和 WARP 目标网址。
 - WARP 域名规则必须位于节点 SOCKS5 规则之前，保持 `目标网址 WARP → 节点 SOCKS5 → direct` 的优先级。
 - `af -x` 必须检查配置、Token、服务、动态端口、全部公网 WS 路径、核心版本、WARP（启用时）和最近日志。
-- `af -k/-l` 必须校验 `/etc/argofusion/managed`；只备份和恢复 `/etc/argofusion/nodes.conf` 节点配置，恢复失败必须自动回滚，不得用旧归档覆盖当前脚本、核心或项目目录。
+- `af -k/-l` 必须校验 `/etc/argofusion/managed`；只备份和恢复 `/etc/argofusion/config/nodes.conf` 节点配置，恢复失败必须自动回滚，不得用旧归档覆盖当前脚本、核心或项目目录。
 - 终端配色必须在非 TTY、`TERM=dumb` 或 `NO_COLOR` 环境自动关闭，不得向日志和管道写入 ANSI 控制符。
 - 状态诊断保持简洁，并包含公网 IP、脚本/核心版本、内存、systemd 状态、监听端口和最近错误。
 - 普通启停、查看节点、修改配置和卸载不得执行 `git pull` 或重新下载仓库脚本。
@@ -126,12 +128,17 @@
 - 配置事务的快照必须覆盖环境、节点、运行配置、服务文件和全部派生订阅文件；生成或服务验证失败时必须恢复文件并重新载入环境变量。
 - `validate_environment()` 是生成 Sing-box/Xray、Nginx 和订阅文件前的共同边界；已有环境文件中的内核选择、域名、端口、UUID、Token 和 WARP 配置不得绕过校验直接写入运行文件。
 - 终端状态行显示 IPv6 优选入口时必须保留 `[地址]:端口` 形式；订阅 URL 按 UI 设计稿使用白色下划线，不输出额外逐条分隔线。
+- `TERMINAL_UI_DESIGN.md` 是终端输出的视觉合同；更新终端 UI 时必须同步脚本、该设计稿和 README。当前基准采用 ArgoFusion 斜体字标、64 列分隔线、ANSI `97` 亮白正文、`◆ / ▸ / ✓ / ! / ✗ / • / ›` 图标语义，以及 `main/back/cancel/none` 四种页面提示模式。
+- 主面板服务名称使用“Argo Tunnel”和“代理核心”；只读页不显示 `0` 操作提示，普通返回静默，取消配置明确提示但不得写入半成品。节点表固定使用 14/7/18/5/12 显示宽度，并且 SOCKS5 只能展示 `direct`、`SOCKS5` 或主机端口，绝不输出用户名或密码。
+- `af -x` 必须诊断 `config`、`data` 的 `700` 与 `subscriptions` 的 `755`；健康时汇总最近日志，出现 ERROR 或诊断失败时才展开相关日志。
 - 不要修改用户已有的无关文件或清理未跟踪的 `sba/` 对照树。
 - 未在真实 VPS 上验证时，不得宣称 systemd、Nginx、Cloudflare 或公网 WS 已端到端通过。
 
 ## 版本与发布
 
 Git 远端可能同时包含原版 SBA 和本项目仓库。发布前必须执行 `git remote -v`，确认目标为 `https://github.com/Fiatnorm/ArgoFusion.git`，不得把本项目改动推送到 `fscarmen/sba`。
+
+向测试分支 `codex/test-directory-layout-v2.14.3` 推送前，必须为该次推送递增并统一 `argofusion.sh` 的 `VERSION`、README 版本记录、终端设计稿适用版本和 `argofusion.sh.sha256`；不得把未标记版本的改动推送到该测试分支，便于逐次核算。
 
 发布范围默认只包含：
 
@@ -157,8 +164,8 @@ git diff --check
 
 ```bash
 nginx -t
-# Sing-box: /etc/argofusion/bin/sing-box check -c /etc/argofusion/sing-box.json
-# Xray: /etc/argofusion/bin/xray run -test -c /etc/argofusion/xray.json
+# Sing-box: /etc/argofusion/bin/sing-box check -c /etc/argofusion/config/sing-box.json
+# Xray: /etc/argofusion/bin/xray run -test -c /etc/argofusion/config/xray.json
 systemctl is-active nginx argofusion-core argofusion-tunnel
 ss -lnt
 journalctl -u argofusion-core -u argofusion-tunnel -n 100 --no-pager

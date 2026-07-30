@@ -1,4 +1,4 @@
-# ArgoFusion v2.14.2
+# ArgoFusion v2.14.7
 
 面向固定 Argo Token 隧道的中文轻量安装脚本，提供：
 
@@ -6,7 +6,7 @@
 - VMess + WS + TLS：`/argo-vm`
 - Trojan + WS + TLS：`/argo-tr`
 - 安装及 `af -c` 均可切换 Sing-box / Xray 内核，三种 WS 节点、订阅与 Argo 接口保持一致
-- 明文节点、终端及网页自动适配订阅 QR、原始订阅与 Base64 通用订阅
+- 原始订阅、Base64 通用订阅、Clash/Mihomo、Clash Provider、sing-box，以及终端和网页自动适配订阅 QR
 
 TLS 由 Cloudflare 边缘终止；VPS 本机 Nginx 与所选代理内核仅监听回环地址。固定隧道必须在 Cloudflare Zero Trust 添加 Public Hostname，Service 指向 `http://localhost:3010`。Public Hostname 域名必须由安装者输入；Cloudflare 优选入口默认使用 `bestcf.cdn.fiatnorm.us.kg:443`，也可在安装或配置时修改。
 
@@ -23,7 +23,7 @@ chmod +x argofusion.sh
 sudo ./argofusion.sh -i
 ```
 
-安装时输入 Argo Token、Public Hostname，并以一行 `域名/IP:端口` 的形式输入 Cloudflare 优选入口，默认值为 `bestcf.cdn.fiatnorm.us.kg:443`。IPv6 使用 `[2001:db8::1]:443`。最后选择 `1` 使用默认 Sing-box，或选择 `2` 使用 Xray；安装后可在 `af -c` 的“切换代理核心”随时切换，原有节点、订阅地址和 Argo 配置不变。
+安装时输入 Argo Token、Public Hostname，并以一行 `域名/IP:端口` 的形式输入 Cloudflare 优选入口，默认值为 `bestcf.cdn.fiatnorm.us.kg:443`。IPv6 使用 `[2001:db8::1]:443`。最后选择 `1` 使用默认 Sing-box，或选择 `2` 使用 Xray；安装后可在 `af` 主面板的“切换代理核心”随时切换，原有节点、订阅地址和 Argo 配置不变。
 
 核心安装在项目私有目录：
 
@@ -31,18 +31,30 @@ sudo ./argofusion.sh -i
 /etc/argofusion/bin/sing-box
 /etc/argofusion/bin/xray
 /etc/argofusion/bin/cloudflared
-/etc/argofusion/sing-box.json
-/etc/argofusion/xray.json
-/etc/argofusion/nodes.txt
-/etc/argofusion/subscription.*
+/etc/argofusion/config/argofusion.env
+/etc/argofusion/config/nodes.conf
+/etc/argofusion/config/sing-box.json
+/etc/argofusion/config/xray.json
+/etc/argofusion/data/nodes.txt
+/etc/argofusion/subscriptions/subscription.*
 /etc/argofusion/backup/
 ```
 
-项目核心、配置、节点和订阅数据统一保存在 `/etc/argofusion/`。只有 systemd unit、Nginx 站点配置和 `/usr/local/bin/af` 命令入口按 Linux 系统约定保存在对应系统目录。服务使用 `argofusion-core.service` 和 `argofusion-tunnel.service`，不会覆盖系统已有的通用 `sing-box.service`、`xray.service` 或 `cloudflared.service`。
+项目核心、配置、节点和订阅数据统一保存在 `/etc/argofusion/`：`bin/` 为私有二进制，`config/` 为环境、节点和核心运行配置，`data/` 为明文节点，`subscriptions/` 为全部订阅产物，`backup/` 为节点备份。根目录仅保留项目脚本与所有权标记。升级到 v2.14.3 时，原根目录中的这些项目文件会在安装事务中无损迁入对应分类目录，并重新生成服务和 Nginx 引用；公网订阅 URL 不变。只有 systemd unit、Nginx 站点配置和 `/usr/local/bin/af` 命令入口按 Linux 系统约定保存在对应系统目录。服务使用 `argofusion-core.service` 和 `argofusion-tunnel.service`，不会覆盖系统已有的通用 `sing-box.service`、`xray.service` 或 `cloudflared.service`。
 
 从 Argo-Singbox 升级时，脚本仅在 `/etc/asb/managed` 所有权标记有效且 `/etc/argofusion` 不存在时，将旧目录迁移为 `/etc/argofusion`，把 `asb.env` 与 `argo-singbox.sh` 分别改名为 `argofusion.env` 与 `argofusion.sh`，并临时保留兼容链接。新服务验证通过后才移除属于本项目的旧 `asb-*` 服务和兼容链接；失败则恢复旧服务。两个真实目录同时存在或旧目录没有所有权标记时会停止并要求人工核对。
 
 迁移会先停止旧服务并等待节点端口释放，再启动新服务；若新服务启动失败，会先停用新服务再恢复旧服务，避免两套 sing-box 同时抢占节点端口。重新执行 v2.8.2 安装可修复旧版迁移失败后形成的新旧服务端口冲突。
+
+v2.14.7 根据 `ArgoFusion_TERMINAL_UI_DESIGN_v2.14.5.md` 统一终端输出：首页改用 ArgoFusion 斜体字标与亮白正文；页面提示按主面板、返回、取消和只读场景显示；主面板状态统一为 Argo Tunnel 与代理核心；节点表采用 64 列布局并隐藏 SOCKS5 凭据；诊断检查 `config/data` 的 `700` 与 `subscriptions` 的 `755`，健康时仅汇总最近日志。
+
+v2.14.6 合并重复的 Shadowrocket 订阅：Shadowrocket 与 V2rayN、NekoBox 共用 `/base64` 通用订阅，停止生成和暴露独立 `/shadowrocket` 文件与 URL。`/raw` 统一命名为“原始订阅”；网页订阅中心重排为推荐自动适配入口与指定格式订阅两层，并改善窄屏布局。
+
+v2.14.5 修复重整目录后的订阅 403：`/etc/argofusion/subscriptions/` 由 Nginx 通过 `alias` 对外提供，目录权限改为 `755`，使 Nginx 工作进程可以读取订阅、二维码和自动适配文件；`config/`、`data/` 仍保持 `700` 私有权限。重新安装或更新安装会自动修正已有目录权限。
+
+v2.14.3 重整 VPS 项目目录：环境、节点定义与两套核心 JSON 迁入 `/etc/argofusion/config/`，明文节点迁入 `/etc/argofusion/data/`，各类订阅和自动适配 QR 迁入 `/etc/argofusion/subscriptions/`。升级安装会先核对同名文件内容，拒绝覆盖冲突或异常文件类型，再迁移并重建 Nginx、核心服务与订阅；外部订阅 URL 保持不变。
+
+v2.14.4 优化终端输出层级与排版：页面标题下统一说明 `0` 的返回/退出规则，移除子页面和确认提示中的重复文字；主面板将“切换代理核心”提升为独立日常操作，集中配置只保留配置、节点与 WARP 分流。同步将终端设计稿、菜单和说明统一为 ArgoFusion 名称与 `af` 命令。
 
 v2.14.2 修复 GitHub Release 压缩 JSON 的 SHA256 解析。Cloudflared、Sing-box 与 Xray 仍必须通过官方 Release 发布的 SHA256 校验；缺少或不匹配时继续拒绝安装。
 
@@ -156,7 +168,7 @@ sudo ./argofusion.sh -i
 | `sudo af -n` | 显示全部节点、所有订阅地址及一张自动适配订阅 QR |
 | `sudo af -a` | 开启或关闭 Argo/cloudflared 服务 |
 | `sudo af -s` | 开启或关闭当前选择的 Sing-box / Xray 服务 |
-| `sudo af -c` | 修改 Token、域名、优选入口、端口、UUID、节点、SOCKS5、WARP 域名和代理内核 |
+| `sudo af -c` | 修改 Token、域名、优选入口、端口、UUID、节点、SOCKS5 与 WARP 域名 |
 | `sudo af -r` | 重启 Nginx、当前代理内核和 Argo 服务 |
 | `sudo af -x` | 执行完整诊断、WS 检查并显示最近日志 |
 | `sudo af -v` | 比较版本并更新 Argo/cloudflared 与当前选择的代理内核 |
@@ -173,28 +185,29 @@ sudo ./argofusion.sh -i
 ## 菜单
 
 ```text
-1. 查看节点信息 (af -n)
+1. 查看节点与订阅 (af -n)
 2. 开启/关闭 Argo (af -a)
 3. 开启/关闭当前代理内核 (af -s)
-4. 集中配置 (af -c)
-5. 重启全部服务 (af -r)
-6. 完整诊断 (af -x)
-7. 安装 / 更新 ArgoFusion (af -i)
-8. 更新 Argo / 当前代理内核 (af -v)
-9. 备份节点配置 (af -k)
-10. 恢复节点配置 (af -l)
-11. 第三方 BBR / DD 工具 (af -b)
-12. 卸载 ArgoFusion (af -u)
+4. 切换代理核心 (当前 Sing-box / Xray)
+5. 集中配置 (af -c)
+6. 重启全部服务 (af -r)
+7. 完整诊断 (af -x)
+8. 安装 / 更新 ArgoFusion (af -i)
+9. 更新 Argo / 当前代理内核 (af -v)
+10. 备份节点配置 (af -k)
+11. 恢复节点配置 (af -l)
+12. 第三方 BBR / DD 工具 (af -b)
+13. 卸载 ArgoFusion (af -u)
 0. 退出
 ```
 
 ## 集中配置与分流
 
-`af -c` 集中修改 Token、Argo 域名、优选入口、Argo Tunnel 回源端口和全局 UUID，也可以添加、修改或删除 VLESS、VMess、Trojan 的 WS + TLS 节点。修改 Tunnel 回源端口时，节点监听端口从“回源端口 + 1”开始依次顺延；添加节点时默认使用当前最大监听端口的下一个端口。配置保存在 `/etc/argofusion/nodes.conf`。修改后还必须在 Cloudflare Public Hostname 中把 Service 同步为新的 `http://localhost:端口`。
+`af -c` 集中修改 Token、Argo 域名、优选入口、Argo Tunnel 回源端口和全局 UUID，也可以添加、修改或删除 VLESS、VMess、Trojan 的 WS + TLS 节点。修改 Tunnel 回源端口时，节点监听端口从“回源端口 + 1”开始依次顺延；添加节点时默认使用当前最大监听端口的下一个端口。配置保存在 `/etc/argofusion/config/nodes.conf`。修改后还必须在 Cloudflare Public Hostname 中把 Service 同步为新的 `http://localhost:端口`。
 
 ### 切换 Sing-box / Xray
 
-在 `af -c` 选择“切换代理核心”，输入 `1` 为 Sing-box、`2` 为 Xray。两种核心共用 `/etc/argofusion/argofusion.env`、`/etc/argofusion/nodes.conf`、Nginx、Argo Tunnel 和订阅文件；`/etc/argofusion/sing-box.json` 与 `/etc/argofusion/xray.json` 始终分别保留。切换会先检查目标二进制，必要时从官方 Release 下载、校验并原子安装，然后同时重建和校验两套 JSON，最后重启同一个 `argofusion-core.service`。失败会恢复切换前的环境、运行配置、服务文件和订阅文件。
+在 `af` 主面板选择“切换代理核心”，输入 `1` 为 Sing-box、`2` 为 Xray。两种核心共用 `/etc/argofusion/config/argofusion.env`、`/etc/argofusion/config/nodes.conf`、Nginx、Argo Tunnel 和订阅文件；`/etc/argofusion/config/sing-box.json` 与 `/etc/argofusion/config/xray.json` 始终分别保留。切换会先检查目标二进制，必要时从官方 Release 下载、校验并原子安装，然后同时重建和校验两套 JSON，最后重启同一个 `argofusion-core.service`。失败会恢复切换前的环境、运行配置、服务文件和订阅文件。
 
 添加节点时可留空使用直连，也可输入 SOCKS5 出站：
 
@@ -204,7 +217,7 @@ sudo ./argofusion.sh -i
 
 路由按节点 inbound tag 匹配，因此同一种协议的不同 WS 路径可以使用不同出口。SOCKS5 地址、端口、用户名和密码只写入权限为 `600` 的项目配置；节点分享链接不包含出站凭据。配置变更会重建所有已安装内核的配置并逐一检查、执行 `nginx -t`、重启服务和状态验证，失败时恢复修改前文件。
 
-集中配置中的基础项、节点操作和 WARP 子菜单均可输入 `0` 返回上级界面；返回时不会写入半成品配置。
+所有页面标题下都会统一提示：输入 `0` 返回上级，主面板输入 `0` 退出。基础项、节点操作和 WARP 子菜单均保留该行为，返回时不会写入半成品配置。
 
 ### 按网址优先使用 WARP
 
@@ -226,12 +239,12 @@ https://chatgpt.com,api.openai.com,example.com
 
 WARP 只覆盖匹配的网址，不会替换其他节点的 SOCKS5 配置。`af -x` 会检查 `warp-svc`、本地代理端口，并通过 WARP 访问第一个目标域名。WARP 不提供匿名保证，也不保证指定国家或地区的落地 IP。
 
-终端输出使用高亮配色：亮紫色标识品牌和输入提示，亮蓝/亮青区分概览、分区与键名，亮黄色标识菜单序号和停用状态，白色承载主要内容，绿/黄/红分别表示成功、警告和错误。订阅链接使用白色下划线。菜单、诊断、节点订阅与表格统一采用内容块布局：区块之间保留一行，区块内部保持紧凑。分隔线统一为 64 列 ASCII `-`，表格与菜单按终端显示宽度对齐；IPv6 优选入口在状态行中显示为 `[地址]:端口`；重定向输出、`TERM=dumb` 或设置 `NO_COLOR=1` 时自动关闭全部颜色和文本装饰。
+终端输出使用高亮配色：亮蓝字标、亮紫页面标题和输入提示，亮蓝/亮青键名与分区、亮黄色菜单序号和停用状态，亮白承载主要内容，绿/黄/红分别表示成功、警告和错误。订阅链接使用亮白下划线。主面板、可返回菜单、可取消表单和只读页面分别显示对应的 `0` 提示；普通返回不额外输出提示。菜单、诊断、节点订阅与表格统一采用内容块布局：区块之间保留一行，区块内部保持紧凑。分隔线统一为 64 列 ASCII `-`，节点表按 14/7/18/5/12 显示宽度对齐且不显示 SOCKS5 用户名和密码；IPv6 优选入口在状态行中显示为 `[地址]:端口`；重定向输出、`TERM=dumb` 或设置 `NO_COLOR=1` 时自动关闭全部颜色和文本装饰。
 
 ## 诊断、备份与恢复
 
 - `af -x`：检查配置与 Token 同步、三个服务、全部动态监听端口、每条公网 WS 路径、核心版本，并输出最近 30 条项目日志。
-- `af -k [文件夹或文件.tar.gz]`：只备份 `/etc/argofusion/nodes.conf` 节点配置，默认保存到 `/etc/argofusion/backup/argofusion-nodes-backup-时间.tar.gz`；也可指定其他绝对路径。
+- `af -k [文件夹或文件.tar.gz]`：只备份 `/etc/argofusion/config/nodes.conf` 节点配置，默认保存到 `/etc/argofusion/backup/argofusion-nodes-backup-时间.tar.gz`；也可指定其他绝对路径。
 - `af -l [文件夹或文件.tar.gz]`：默认从 `/etc/argofusion/backup/` 选择最新节点归档，也可指定目录或完整文件。解压前会验证 gzip、成员路径与文件类型，拒绝目录穿越、符号链接和特殊文件；随后只恢复节点配置，重新生成当前内核配置、Nginx、订阅文件并验证服务，失败自动回滚。传入旧版完整 `/etc/argofusion` 归档时，也只读取其中的 `nodes.conf`，不会恢复旧脚本、旧核心或整个项目目录。
 
 `af -v` 会分别显示 Argo/cloudflared 与当前选择的 Sing-box 或 Xray 的本地、目标版本，并分别询问是否更新。只下载、备份、替换和重启用户确认更新的核心；下载文件会校验 SHA256/可执行性，并在替换前检查当前配置。验证失败时只回滚本次选择的核心。
@@ -242,7 +255,7 @@ WARP 只覆盖匹配的网址，不会替换其他节点的 SOCKS5 配置。`af 
 
 ## 节点、订阅和检查
 
-`af -n` 输出配置文件索引、自动适配订阅 QR 和全部原始节点链接。浏览器访问 `https://你的域名/你的UUID/` 可进入经典白底蓝字订阅面板，扫描同一自动适配订阅 QR，或打开不同客户端配置：
+`af -n` 输出配置文件索引、自动适配订阅 QR 和全部原始节点链接。浏览器访问 `https://你的域名/你的UUID/` 可进入白底蓝字订阅中心，扫描同一自动适配订阅 QR，或打开不同客户端配置：
 
 ```text
 https://你的域名/你的UUID/auto
@@ -251,10 +264,9 @@ https://你的域名/你的UUID/base64
 https://你的域名/你的UUID/clash
 https://你的域名/你的UUID/proxies
 https://你的域名/你的UUID/sing-box
-https://你的域名/你的UUID/shadowrocket
 ```
 
-`/你的UUID` 会跳转到文件索引；索引 HTML 由 Nginx 直接返回，避免目录 URL 使用文件 `alias` 导致 500。`/auto` 根据 User-Agent 为 Clash/Mihomo、sing-box 和 Shadowrocket 返回对应格式，其他客户端返回 Base64 通用订阅。`/raw` 以及 `/etc/argofusion/nodes.txt` 保留逐行明文 `vless://`、`vmess://`、`trojan://` 节点协议。旧的 `/argofusion-sub` 与 `/argofusion-sub-base64` 入口继续可用。
+`/你的UUID` 会跳转到文件索引；索引 HTML 由 Nginx 直接返回，避免目录 URL 使用文件 `alias` 导致 500。`/auto` 根据 User-Agent 为 Clash/Mihomo 与 sing-box 返回对应格式，其他客户端（包括 Shadowrocket）返回 Base64 通用订阅。`/raw`（原始订阅）以及 `/etc/argofusion/data/nodes.txt` 保留逐行明文 `vless://`、`vmess://`、`trojan://` 节点协议。旧的 `/argofusion-sub` 与 `/argofusion-sub-base64` 入口继续可用。
 
 网页自动适配订阅 QR 由 `generate_nodes()` 生成，并通过订阅面板的 `/你的UUID/auto-qr.svg` 资源展示；终端仅输出这一张自动适配 QR，不为明文节点或其他独立配置重复生成二维码。
 
@@ -273,7 +285,7 @@ Clash/Mihomo 的三种 WS 节点均显式 `udp: true`，并统一输出 Chrome �
 - `/etc/argofusion` 中的项目核心、配置、订阅和项目备份；
 - `argofusion-core.service`、`argofusion-tunnel.service` 以及确认属于本项目的旧服务；
 - `/etc/nginx/conf.d/argofusion.conf`、项目旧 Nginx 配置、`/usr/local/bin/af`；
-- `/etc/argofusion/nodes.txt`、旧版 `/root` 节点文件、项目迁移链接和兼容节点文件。
+- `/etc/argofusion/data/nodes.txt`、旧版 `/root` 节点文件、项目迁移链接和兼容节点文件。
 
 私有 `/etc/argofusion/bin/cloudflared`（Argo）、`/etc/argofusion/bin/sing-box` 和 `/etc/argofusion/bin/xray` 一定随项目删除。卸载完成后脚本立即退出，不会重新显示管理面板。
 

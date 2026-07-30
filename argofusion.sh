@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-VERSION="2.14.2"
+VERSION="2.14.7"
 PROJECT_NAME="ArgoFusion"
 COMMAND_NAME="af"
 PROJECT_REPO="Fiatnorm/ArgoFusion"
@@ -9,25 +9,28 @@ PROJECT_BRANCH="main"
 WORK_DIR="/etc/argofusion"
 WORK_DIR_NAME="${WORK_DIR##*/}"
 LEGACY_WORK_DIR="/etc/asb"
-ENV_FILE="${WORK_DIR}/argofusion.env"
-SING_BOX_CONFIG="${WORK_DIR}/sing-box.json"
-XRAY_CONFIG="${WORK_DIR}/xray.json"
+CONFIG_DIR="${WORK_DIR}/config"
+DATA_DIR="${WORK_DIR}/data"
+SUBSCRIPTION_DIR="${WORK_DIR}/subscriptions"
+ENV_FILE="${CONFIG_DIR}/argofusion.env"
+SING_BOX_CONFIG="${CONFIG_DIR}/sing-box.json"
+XRAY_CONFIG="${CONFIG_DIR}/xray.json"
 NGINX_CONFIG="/etc/nginx/conf.d/argofusion.conf"
 LEGACY_NGINX_CONFIG="/etc/nginx/conf.d/argo-singbox.conf"
-NODES_FILE="${WORK_DIR}/nodes.txt"
+NODES_FILE="${DATA_DIR}/nodes.txt"
 LEGACY_NODES_FILE="/root/argo-singbox_nodes.txt"
 LOCAL_SCRIPT="${WORK_DIR}/argofusion.sh"
 BIN_DIR="${WORK_DIR}/bin"
 BACKUP_DIR="${WORK_DIR}/backup"
 MANAGED_FILE="${WORK_DIR}/managed"
-NODES_CONFIG="${WORK_DIR}/nodes.conf"
-SUB_FILE="${WORK_DIR}/subscription.txt"
-SUB_BASE64_FILE="${WORK_DIR}/subscription.base64"
-SUB_CLASH_FILE="${WORK_DIR}/subscription.clash.yaml"
-SUB_CLASH_PROVIDER_FILE="${WORK_DIR}/subscription.proxies.yaml"
-SUB_SING_BOX_FILE="${WORK_DIR}/subscription.sing-box.json"
-SUB_SHADOWROCKET_FILE="${WORK_DIR}/subscription.shadowrocket"
-SUB_AUTO_QR_FILE="${WORK_DIR}/subscription.auto.svg"
+NODES_CONFIG="${CONFIG_DIR}/nodes.conf"
+SUB_FILE="${SUBSCRIPTION_DIR}/subscription.txt"
+SUB_BASE64_FILE="${SUBSCRIPTION_DIR}/subscription.base64"
+SUB_CLASH_FILE="${SUBSCRIPTION_DIR}/subscription.clash.yaml"
+SUB_CLASH_PROVIDER_FILE="${SUBSCRIPTION_DIR}/subscription.proxies.yaml"
+SUB_SING_BOX_FILE="${SUBSCRIPTION_DIR}/subscription.sing-box.json"
+OBSOLETE_SUBSCRIPTION_FILE="${SUBSCRIPTION_DIR}/subscription.shadowrocket"
+SUB_AUTO_QR_FILE="${SUBSCRIPTION_DIR}/subscription.auto.svg"
 SING_SERVICE="argofusion-core"
 ARGO_SERVICE="argofusion-tunnel"
 LEGACY_SING_SERVICE="asb-sing-box"
@@ -50,10 +53,12 @@ if [[ -t 1 && -z "${NO_COLOR:-}" && "${TERM:-dumb}" != "dumb" ]]; then
   C_BLUE=$'\033[34m'; C_MAGENTA=$'\033[35m'; C_CYAN=$'\033[36m'; C_WHITE=$'\033[37m'
   C_BRIGHT_RED=$'\033[91m'; C_BRIGHT_GREEN=$'\033[92m'; C_BRIGHT_YELLOW=$'\033[93m'
   C_BRIGHT_BLUE=$'\033[94m'; C_BRIGHT_MAGENTA=$'\033[95m'; C_BRIGHT_CYAN=$'\033[96m'
+  C_BRIGHT_WHITE=$'\033[97m'
 else
   C_RESET=""; C_BOLD=""; C_DIM=""; C_UNDERLINE=""; C_RED=""; C_GREEN=""; C_YELLOW=""
   C_BLUE=""; C_MAGENTA=""; C_CYAN=""; C_WHITE=""; C_BRIGHT_RED=""; C_BRIGHT_GREEN=""
   C_BRIGHT_YELLOW=""; C_BRIGHT_BLUE=""; C_BRIGHT_MAGENTA=""; C_BRIGHT_CYAN=""
+  C_BRIGHT_WHITE=""
 fi
 ui_line() {
   local char="${1:--}"
@@ -77,10 +82,21 @@ pad_right() {
   ((pad < 0)) && pad=0
   printf '%s%*s' "$text" "$pad" ''
 }
-brand() {
-  printf '\n%s%s◆ %s%s\n' "$C_BOLD" "$C_BRIGHT_MAGENTA" "$*" "$C_RESET"
+ui_page() {
+  local title="$1" mode="${2:-none}" hint=""
+  case "$mode" in
+    main) hint="输入 0 退出。" ;;
+    back) hint="输入 0 返回上级。" ;;
+    cancel) hint="输入 0 取消本次操作。" ;;
+    none) ;;
+    *) die "未知页面提示模式：${mode}" ;;
+  esac
+  printf '\n%s%s◆ %s%s\n' "$C_BOLD" "$C_BRIGHT_MAGENTA" "$title" "$C_RESET"
+  [[ -z "$hint" ]] || printf '%s  操作提示：%s%s%s\n' \
+    "$C_BRIGHT_CYAN" "$C_BRIGHT_WHITE" "$hint" "$C_RESET"
   ui_line
 }
+brand() { ui_page "$1" "${2:-none}"; }
 system_summary() {
   local os="Linux" arch ip
   if [[ -r /etc/os-release ]]; then
@@ -107,12 +123,29 @@ control_panel() {
   printf '%s\n' ' / ___ |/ /  / /_/ / /_/ /___/ / / / / / /_/ / /_/ / /_/ />  <'
   printf '%s\n' '/_/  |_/_/   \__, /\____//____/_/_/ /_/\__, /_.___/\____/_/|_|'
   printf '%s\n' '            /____/                    /____/'
-  printf '\n%s%s%s  %sv%s%s %s· Argo Tunnel · 可选代理核心 · WSS Proxy%s\n' \
+  printf '\n%s%s%s  %sv%s%s %s· Argo Tunnel · Sing-box / Xray · WSS Proxy%s\n' \
     "$C_BOLD" "$C_BRIGHT_MAGENTA" "$PROJECT_NAME" "$C_BRIGHT_YELLOW" "$VERSION" \
     "$C_RESET" "$C_DIM" "$C_RESET"
   printf '%s' "$C_BRIGHT_CYAN"
   pad_right "系统环境" 12
   printf '%s %s%s%s\n' "$C_RESET" "$C_WHITE" "$(system_summary)" "$C_RESET"
+  ui_line
+  UI_TIGHT_SECTION=1
+}
+control_panel() {
+  printf '\n%s%s' "$C_BOLD" "$C_BRIGHT_BLUE"
+  printf '%s\n' '    ___                     ______           _'
+  printf '%s\n' '   /   |  _________  ____  / ____/_  _______(_)___  ____'
+  printf '%s\n' '  / /| | / ___/ __ \/ __ \/ /_  / / / / ___/ / __ \/ __ \'
+  printf '%s\n' ' / ___ |/ /  / /_/ / /_/ / __/ / /_/ (__  ) / /_/ / / / /'
+  printf '%s\n' '/_/  |_|_/   \__, /\____/_/    \__,_/____/_/\____/_/ /_/'
+  printf '%s\n' '            /____/'
+  printf '\n%s%s%s  %sv%s%s %s· Argo Tunnel · Sing-box / Xray · WSS%s\n' \
+    "$C_BOLD" "$C_BRIGHT_MAGENTA" "$PROJECT_NAME" "$C_BRIGHT_YELLOW" "$VERSION" \
+    "$C_RESET" "$C_DIM" "$C_RESET"
+  printf '%s' "$C_BRIGHT_CYAN"
+  pad_right "系统环境" 12
+  printf '%s %s%s%s\n' "$C_RESET" "$C_BRIGHT_WHITE" "$(system_summary)" "$C_RESET"
   ui_line
   UI_TIGHT_SECTION=1
 }
@@ -138,7 +171,7 @@ warp_status() {
   fi
 }
 component_versions() {
-  printf '%s v%s · %s %s · Cloudflared %s' "$PROJECT_NAME" "$VERSION" "$(core_label)" \
+  printf 'AF %s · %s %s · CF %s' "$VERSION" "$(core_label)" \
     "$(local_core_version 2>/dev/null || printf '未安装')" \
     "$(local_cloudflared_version 2>/dev/null || printf '未安装')"
 }
@@ -155,7 +188,7 @@ subsection() { section "$*"; }
 key_value() {
   printf '%s' "$C_BRIGHT_BLUE"
   pad_right "$1" 13
-  printf '%s  %s%s%s\n' "$C_RESET" "$C_WHITE" "$2" "$C_RESET"
+  printf '%s  %s%s%s\n' "$C_RESET" "$C_BRIGHT_WHITE" "$2" "$C_RESET"
 }
 ip_value() {
   printf '%s' "$C_BRIGHT_BLUE"
@@ -163,7 +196,7 @@ ip_value() {
   printf '%s  %s%s%s\n' "$C_RESET" "$C_BRIGHT_MAGENTA" "$2" "$C_RESET"
 }
 endpoint_value() {
-  local label="$1" host="$2" port="$3" color="$C_WHITE" display_host="$2"
+  local label="$1" host="$2" port="$3" color="$C_BRIGHT_WHITE" display_host="$2"
   [[ "$host" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ || "$host" =~ ^[0-9A-Fa-f:]+$ ]] && color="$C_BRIGHT_MAGENTA"
   [[ "$host" == *:* && "$host" != \[*\] ]] && display_host="[${host}]"
   printf '%s' "$C_BRIGHT_BLUE"
@@ -173,13 +206,17 @@ endpoint_value() {
 state_value() {
   local color="$C_BRIGHT_YELLOW" value="$2" prefix endpoint
   case "$2" in
-    运行中*) color="$C_BRIGHT_GREEN" ;;
+    运行中*|*'· 运行中') color="$C_BRIGHT_GREEN" ;;
     未启用|已停止|未安装) color="$C_BRIGHT_YELLOW" ;;
     *异常*) color="$C_BRIGHT_RED" ;;
   esac
   printf '%s' "$C_BRIGHT_BLUE"
   pad_right "$1" 13
-  if [[ "$value" =~ ^(.*)(127\.0\.0\.1:[0-9]+)$ ]]; then
+  if [[ "$1" == "代理核心" && "$value" =~ ^([^·]+)[[:space:]]·[[:space:]](.*)$ ]]; then
+    printf '%s  %s%s%s %s·%s %s%s%s\n' "$C_RESET" "$C_BRIGHT_MAGENTA" \
+      "${BASH_REMATCH[1]}" "$C_RESET" "$C_BRIGHT_WHITE" "$C_RESET" "$color" \
+      "${BASH_REMATCH[2]}" "$C_RESET"
+  elif [[ "$value" =~ ^(.*)(127\.0\.0\.1:[0-9]+)$ ]]; then
     prefix="${BASH_REMATCH[1]}"; endpoint="${BASH_REMATCH[2]}"
     printf '%s  %s%s%s%s%s\n' "$C_RESET" "$color" "$prefix" "$C_BRIGHT_MAGENTA" "$endpoint" "$C_RESET"
   else
@@ -189,7 +226,7 @@ state_value() {
 link_value() {
   printf '%s' "$C_BRIGHT_BLUE"
   pad_right "$1" 14
-  printf '%s  %s%s%s%s\n' "$C_RESET" "$C_WHITE" "$C_UNDERLINE" "$2" "$C_RESET"
+  printf '%s  %s%s%s%s\n' "$C_RESET" "$C_BRIGHT_WHITE" "$C_UNDERLINE" "$2" "$C_RESET"
 }
 prompt() { printf '%s%s› %s%s' "$C_BOLD" "$C_BRIGHT_MAGENTA" "$*" "$C_RESET"; }
 read_choice() { prompt "$1"; IFS= read -r REPLY; REPLY="${REPLY%$'\r'}"; }
@@ -200,15 +237,15 @@ is_exit_input() {
     *) return 1 ;;
   esac
 }
-return_notice() { yellow "已返回上级菜单。"; }
+return_notice() { :; }
 
 cancel_config_change() {
   [[ -n "${CONFIG_SNAPSHOT:-}" && -d "$CONFIG_SNAPSHOT" ]] && rm -rf "$CONFIG_SNAPSHOT"
   unset CONFIG_SNAPSHOT
-  return_notice
+  yellow "已取消本次修改，配置未变更。"
 }
 menu_item() {
-  printf '  %s%2s%s  %s' "$C_BRIGHT_YELLOW" "$1" "$C_RESET" "$C_WHITE"
+  printf '  %s%2s%s  %s' "$C_BRIGHT_YELLOW" "$1" "$C_RESET" "$C_BRIGHT_WHITE"
   pad_right "$2" 36
   printf '%s%s%s%s\n' "$C_RESET" "$C_BRIGHT_CYAN" "${3:+[$3]}" "$C_RESET"
 }
@@ -245,10 +282,80 @@ load_env() {
   CORE="${CORE:-sing-box}"
 }
 
+ensure_project_layout() {
+  install -d -m 700 "$CONFIG_DIR" "$DATA_DIR"
+  install -d -m 755 "$SUBSCRIPTION_DIR"
+}
+
+verify_project_file_relocation() {
+  local source="$1" destination="$2"
+  [[ -e "$source" ]] || return 0
+  [[ -f "$source" && ! -L "$source" ]] ||
+    die "旧目录中的项目文件类型异常，拒绝迁移：${source}"
+  if [[ -e "$destination" ]]; then
+    [[ -f "$destination" && ! -L "$destination" ]] ||
+      die "新目录中的项目文件类型异常，拒绝迁移：${destination}"
+    cmp -s "$source" "$destination" ||
+      die "新旧目录中的项目文件内容不同，拒绝覆盖：${source}"
+  fi
+}
+
+relocate_project_file() {
+  local source="$1" destination="$2" mode="$3"
+  [[ -e "$source" ]] || return 0
+  if [[ -e "$destination" ]]; then
+    rm -f -- "$source"
+  else
+    mv -- "$source" "$destination"
+  fi
+  chmod "$mode" "$destination"
+}
+
+migrate_project_layout() {
+  local moved=0
+  [[ -f "$MANAGED_FILE" ]] || return 0
+
+  verify_project_file_relocation "${WORK_DIR}/argofusion.env" "$ENV_FILE"
+  verify_project_file_relocation "${WORK_DIR}/nodes.conf" "$NODES_CONFIG"
+  verify_project_file_relocation "${WORK_DIR}/sing-box.json" "$SING_BOX_CONFIG"
+  verify_project_file_relocation "${WORK_DIR}/xray.json" "$XRAY_CONFIG"
+  verify_project_file_relocation "${WORK_DIR}/nodes.txt" "$NODES_FILE"
+  verify_project_file_relocation "${WORK_DIR}/subscription.txt" "$SUB_FILE"
+  verify_project_file_relocation "${WORK_DIR}/subscription.base64" "$SUB_BASE64_FILE"
+  verify_project_file_relocation "${WORK_DIR}/subscription.clash.yaml" "$SUB_CLASH_FILE"
+  verify_project_file_relocation "${WORK_DIR}/subscription.proxies.yaml" "$SUB_CLASH_PROVIDER_FILE"
+  verify_project_file_relocation "${WORK_DIR}/subscription.sing-box.json" "$SUB_SING_BOX_FILE"
+  verify_project_file_relocation "${WORK_DIR}/subscription.shadowrocket" "$OBSOLETE_SUBSCRIPTION_FILE"
+  verify_project_file_relocation "${WORK_DIR}/subscription.auto.svg" "$SUB_AUTO_QR_FILE"
+
+  [[ -e "${WORK_DIR}/argofusion.env" || -e "${WORK_DIR}/nodes.conf" ||
+    -e "${WORK_DIR}/sing-box.json" || -e "${WORK_DIR}/xray.json" ||
+    -e "${WORK_DIR}/nodes.txt" || -e "${WORK_DIR}/subscription.txt" ||
+    -e "${WORK_DIR}/subscription.base64" || -e "${WORK_DIR}/subscription.clash.yaml" ||
+    -e "${WORK_DIR}/subscription.proxies.yaml" || -e "${WORK_DIR}/subscription.sing-box.json" ||
+    -e "${WORK_DIR}/subscription.shadowrocket" || -e "${WORK_DIR}/subscription.auto.svg" ]] || return 0
+
+  ensure_project_layout
+  relocate_project_file "${WORK_DIR}/argofusion.env" "$ENV_FILE" 600
+  relocate_project_file "${WORK_DIR}/nodes.conf" "$NODES_CONFIG" 600
+  relocate_project_file "${WORK_DIR}/sing-box.json" "$SING_BOX_CONFIG" 600
+  relocate_project_file "${WORK_DIR}/xray.json" "$XRAY_CONFIG" 600
+  relocate_project_file "${WORK_DIR}/nodes.txt" "$NODES_FILE" 600
+  relocate_project_file "${WORK_DIR}/subscription.txt" "$SUB_FILE" 644
+  relocate_project_file "${WORK_DIR}/subscription.base64" "$SUB_BASE64_FILE" 644
+  relocate_project_file "${WORK_DIR}/subscription.clash.yaml" "$SUB_CLASH_FILE" 644
+  relocate_project_file "${WORK_DIR}/subscription.proxies.yaml" "$SUB_CLASH_PROVIDER_FILE" 644
+  relocate_project_file "${WORK_DIR}/subscription.sing-box.json" "$SUB_SING_BOX_FILE" 644
+  relocate_project_file "${WORK_DIR}/subscription.shadowrocket" "$OBSOLETE_SUBSCRIPTION_FILE" 644
+  relocate_project_file "${WORK_DIR}/subscription.auto.svg" "$SUB_AUTO_QR_FILE" 644
+  moved=1
+  ((moved)) && green "已将现有配置、节点和订阅文件迁入分类目录。"
+}
+
 save_env() {
   local old_umask temp
   old_umask="$(umask)"
-  install -d -m 755 "$WORK_DIR"
+  ensure_project_layout
   umask 077
   temp="$(mktemp "${ENV_FILE}.tmp.XXXXXX")"
   {
@@ -825,7 +932,6 @@ map \$http_user_agent \$argofusion_subscription_file {
     default ${SUB_BASE64_FILE};
     ~*(clash|mihomo|stash) ${SUB_CLASH_FILE};
     ~*(sing-box|singbox|sfi|sfa|sfm) ${SUB_SING_BOX_FILE};
-    ~*(shadowrocket) ${SUB_SHADOWROCKET_FILE};
 }
 
 server {
@@ -857,7 +963,7 @@ EOF
     }
     location = /${UUID}/ {
         default_type text/html;
-        return 200 '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ArgoFusion 订阅面板</title><style>:root{color-scheme:light;--blue:#0969da;--blue2:#1d4ed8;--text:#172033;--muted:#5f6f89;--line:#d8e3f5;--bg:#fff}*{box-sizing:border-box}body{margin:0;background:var(--bg);font:16px/1.6 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--text)}main{max-width:860px;margin:32px auto;padding:0 18px 40px}h1{margin:0 0 8px;color:var(--blue);font-size:28px;letter-spacing:0}p{margin:0 0 18px;color:var(--muted)}.qr{display:flex;gap:18px;align-items:center;border:1px solid var(--line);border-radius:8px;padding:16px;margin:18px 0 20px}.qr img{width:168px;height:168px;image-rendering:pixelated}.qr a,.item{color:var(--blue);text-decoration:none}.qr a:hover,.item:hover{text-decoration:underline}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px}.item{display:block;border:1px solid var(--line);border-radius:8px;padding:12px 14px}.name{display:block;font-weight:700;color:var(--blue2)}.desc{display:block;margin-top:3px;color:var(--muted);font-size:13px}code{color:var(--blue);background:#eef6ff;padding:2px 6px;border-radius:5px}@media (max-width:560px){.qr{display:block}.qr img{width:150px;height:150px;margin-bottom:10px}}</style></head><body><main><h1>ArgoFusion 订阅面板</h1><p>按客户端选择订阅。终端执行 <code>af -n</code> 可查看订阅链接、自动适配 QR 和明文节点。</p><section class="qr"><a href="auto"><img src="auto-qr.svg" alt="自动适配订阅 QR"></a><div><span class="name">自动适配订阅 QR</span><span class="desc">扫码导入自动适配订阅；点击二维码打开订阅链接。</span><p><a href="auto">打开自动适配订阅</a></p></div></section><div class="grid"><a class="item" href="auto"><span class="name">自动适配订阅</span><span class="desc">根据客户端 User-Agent 返回合适格式</span></a><a class="item" href="raw"><span class="name">明文节点链接</span><span class="desc">逐行 vless / vmess / trojan 原始链接</span></a><a class="item" href="base64"><span class="name">Base64 通用订阅</span><span class="desc">V2rayN、NekoBox 等通用导入</span></a><a class="item" href="clash"><span class="name">Clash/Mihomo 订阅</span><span class="desc">完整 YAML 配置</span></a><a class="item" href="proxies"><span class="name">Clash Provider 订阅</span><span class="desc">仅代理节点列表</span></a><a class="item" href="sing-box"><span class="name">sing-box 订阅</span><span class="desc">JSON 出站配置</span></a><a class="item" href="shadowrocket"><span class="name">Shadowrocket 订阅</span><span class="desc">兼容 Shadowrocket 的 Base64 订阅</span></a></div></main></body></html>';
+        return 200 '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ArgoFusion 订阅中心</title><style>:root{color-scheme:light;--blue:#0969da;--blue-strong:#0757c7;--ink:#172033;--muted:#5f6f89;--line:#d8e3f5;--soft:#f5f9ff;--bg:#fff}*{box-sizing:border-box}body{margin:0;background:var(--bg);font:16px/1.6 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--ink)}main{max-width:1040px;margin:0 auto;padding:48px 24px 56px}header{max-width:680px}.eyebrow,.kicker{margin:0;color:var(--blue);font-size:12px;font-weight:800;letter-spacing:.12em}.eyebrow{margin-bottom:8px}h1,h2,p{margin-top:0}h1{margin-bottom:8px;color:var(--blue);font-size:clamp(30px,4vw,42px);line-height:1.16;letter-spacing:-.04em}.intro{margin-bottom:30px;color:var(--muted);font-size:17px}.recommended{display:grid;grid-template-columns:176px minmax(0,1fr);gap:28px;align-items:center;padding:24px 28px;border:1px solid var(--line);border-radius:14px;background:var(--soft)}.qr-link{display:block;width:176px;height:176px;padding:10px;background:#fff;border:1px solid var(--line);border-radius:10px}.qr-link img{display:block;width:100%;height:100%;image-rendering:pixelated}.recommended-copy{max-width:570px}.recommended-copy h2{margin:2px 0 6px;color:var(--blue-strong);font-size:25px;letter-spacing:-.025em}.recommended-copy p:not(.kicker){margin-bottom:14px;color:var(--muted)}a{color:var(--blue);text-decoration:none}.primary-link{display:inline-flex;gap:8px;align-items:center;font-weight:750}.primary-link:hover,.item:hover .name{text-decoration:underline}.formats{margin-top:40px}.section-heading{display:flex;align-items:baseline;justify-content:space-between;gap:20px;margin-bottom:14px}.section-heading h2{margin:0;color:var(--ink);font-size:20px;letter-spacing:-.02em}.section-heading p{margin:0;color:var(--muted);font-size:14px}.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.item{min-height:128px;display:flex;flex-direction:column;justify-content:space-between;padding:20px;border:1px solid var(--line);border-radius:10px;background:#fff;transition:border-color .16s ease,box-shadow .16s ease,transform .16s ease}.item:hover{border-color:#9fc5ff;box-shadow:0 8px 22px rgba(9,105,218,.09);transform:translateY(-2px)}.name{color:var(--blue-strong);font-size:18px;font-weight:760;line-height:1.35}.desc{margin-top:14px;color:var(--muted);font-size:14px;line-height:1.55}.terminal-note{margin:28px 0 0;color:var(--muted);font-size:14px}code{color:var(--blue-strong);background:var(--soft);padding:2px 6px;border-radius:4px}@media (max-width:760px){main{padding:32px 18px 40px}.recommended{grid-template-columns:136px minmax(0,1fr);gap:20px;padding:20px}.qr-link{width:136px;height:136px}.grid{grid-template-columns:repeat(2,minmax(0,1fr))}.section-heading{display:block}.section-heading p{margin-top:4px}}@media (max-width:500px){.recommended{grid-template-columns:1fr}.qr-link{width:150px;height:150px}.grid{grid-template-columns:1fr}.item{min-height:108px}.section-heading{margin-bottom:12px}}</style></head><body><main><header><p class="eyebrow">ARGO FUSION</p><h1>订阅中心</h1><p class="intro">优先使用自动适配订阅；需要指定格式时，可从下方选择对应订阅。</p></header><section class="recommended"><a class="qr-link" href="auto"><img src="auto-qr.svg" alt="自动适配订阅 QR"></a><div class="recommended-copy"><p class="kicker">推荐</p><h2>自动适配订阅</h2><p>扫描二维码或打开链接，系统会根据客户端自动返回合适的订阅格式。</p><a class="primary-link" href="auto">打开自动适配订阅 <span aria-hidden="true">→</span></a></div></section><section class="formats" aria-labelledby="formats-title"><div class="section-heading"><h2 id="formats-title">指定格式订阅</h2><p>所有链接均使用同一组节点配置。</p></div><div class="grid"><a class="item" href="raw"><span class="name">原始订阅</span><span class="desc">逐行 vless / vmess / trojan 原始链接</span></a><a class="item" href="base64"><span class="name">Base64 通用订阅</span><span class="desc">适用于 V2rayN、NekoBox、Shadowrocket 等客户端</span></a><a class="item" href="clash"><span class="name">Clash/Mihomo 订阅</span><span class="desc">完整 YAML 配置</span></a><a class="item" href="proxies"><span class="name">Clash Provider 订阅</span><span class="desc">仅代理节点列表</span></a><a class="item" href="sing-box"><span class="name">sing-box 订阅</span><span class="desc">JSON 出站配置</span></a></div></section><p class="terminal-note">终端执行 <code>af -n</code> 可查看订阅地址、自动适配 QR 和原始节点。</p></main></body></html>';
     }
     location = /${UUID}/auto-qr.svg {
         default_type image/svg+xml;
@@ -886,10 +992,6 @@ EOF
     location = /${UUID}/sing-box {
         default_type application/json;
         alias ${SUB_SING_BOX_FILE};
-    }
-    location = /${UUID}/shadowrocket {
-        default_type text/plain;
-        alias ${SUB_SHADOWROCKET_FILE};
     }
     location = /argofusion-sub {
         default_type text/plain;
@@ -983,7 +1085,7 @@ generate_nodes() {
   chmod 600 "$NODES_FILE"
   install -m 644 "$NODES_FILE" "$SUB_FILE"
   base64 -w 0 "$NODES_FILE" >"$SUB_BASE64_FILE"
-  cp -f "$SUB_BASE64_FILE" "$SUB_SHADOWROCKET_FILE"
+  rm -f -- "$OBSOLETE_SUBSCRIPTION_FILE"
   auto_url="https://${ARGO_DOMAIN}/${UUID}/auto"
   qrencode -t SVG -o "$SUB_AUTO_QR_FILE" "$auto_url"
   printf 'proxies:\n' >"$SUB_CLASH_PROVIDER_FILE"
@@ -1021,7 +1123,7 @@ generate_nodes() {
   printf ']}\n' >>"$SUB_SING_BOX_FILE"
   chmod 644 "$SUB_BASE64_FILE"
   chmod 644 "$SUB_CLASH_FILE" "$SUB_CLASH_PROVIDER_FILE" "$SUB_SING_BOX_FILE" \
-    "$SUB_SHADOWROCKET_FILE" "$SUB_AUTO_QR_FILE"
+    "$SUB_AUTO_QR_FILE"
   umask "$old_umask"
 }
 
@@ -1126,22 +1228,27 @@ health_check() {
 prompt_install_values() {
   local value endpoint core_choice
   read_input "请输入 Argo Token（必填）: " value
+  is_exit_input "$value" && return 1
   valid_argo_token "$value" || die "Argo Token 格式不正确。"
   ARGO_TOKEN="$value"
   read_input "请输入 Argo 域名（必填）${ARGO_DOMAIN:+ [${ARGO_DOMAIN}]}: " value
+  is_exit_input "$value" && return 1
   ARGO_DOMAIN="${value:-$ARGO_DOMAIN}"
   [[ -n "$ARGO_DOMAIN" ]] || die "Argo 域名不能为空。"
   [[ -n "$UUID" ]] || UUID="$(cat /proc/sys/kernel/random/uuid 2>/dev/null || true)"
   [[ -n "$UUID" ]] || UUID="$(openssl rand -hex 16 | sed 's/^\(........\)\(....\)\(....\)\(....\)\(............\)$/\1-\2-\3-\4-\5/')"
   read_input "请输入 UUID [${UUID}]: " value
+  is_exit_input "$value" && return 1
   UUID="${value:-$UUID}"
   [[ "${UUID,,}" =~ ^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$ ]] ||
     die "UUID 格式不正确。"
   read_input "请输入 Cloudflare 优选入口 域名/IP:端口 [${SERVER}:${SERVER_PORT}]: " endpoint
+  is_exit_input "$endpoint" && return 1
   endpoint="${endpoint:-${SERVER}:${SERVER_PORT}}"
   parse_endpoint "$endpoint"
   valid_domain "$ARGO_DOMAIN" || die "Argo 域名格式不正确。"
   read_input "请选择代理核心 [1 Sing-box / 2 Xray，当前 $(core_label)]: " core_choice
+  is_exit_input "$core_choice" && return 1
   case "${core_choice:-}" in
     "") CORE="${CORE:-sing-box}" ;;
     1) CORE="sing-box" ;;
@@ -1303,7 +1410,7 @@ report_node_port_owners() {
 }
 
 show_install_nodes() {
-  section "明文节点"
+  section "原始节点"
   cat "$NODES_FILE"
   printf '\n'
 }
@@ -1314,6 +1421,7 @@ install_project() {
   require_root
   control_panel
   subsection "安装 / 更新"
+  info "输入 0 可取消本次安装并返回上级。"
   if [[ "$install_mode" == "github" ]]; then
     latest_installer="$(mktemp)"
     info "正在获取 ${PROJECT_REPO} ${PROJECT_BRANCH} 的最新安装脚本。"
@@ -1331,14 +1439,19 @@ install_project() {
     die "未知安装模式：${install_mode}"
   fi
   migrate_legacy_install
+  migrate_project_layout
   load_env
-  prompt_install_values
+  if ! prompt_install_values; then
+    yellow "已取消安装 / 更新。"
+    return 0
+  fi
   installer_source="$(mktemp)"
   install -m 755 "$0" "$installer_source"
   detect_arch
   install_dependencies
   assert_service_names_available
   install -d -m 755 "$WORK_DIR" "$BIN_DIR"
+  ensure_project_layout
   install -d -m 700 "$BACKUP_DIR"
   for file in "$ENV_FILE" "$NODES_CONFIG" "$SING_BOX_CONFIG" "$XRAY_CONFIG" "$NGINX_CONFIG" \
     "$LEGACY_NGINX_CONFIG" "$LOCAL_SCRIPT"; do
@@ -1404,12 +1517,12 @@ install_project() {
     yellow "${PROJECT_NAME} 文件已安装，但健康检查未全部通过；请先处理上述错误再使用节点。"
   fi
   section "运行摘要"
-  state_value "Argo 服务" "$(service_status "$ARGO_SERVICE")"
-  state_value "$(core_label) 服务" "$(service_status "$SING_SERVICE")"
+  state_value "Argo Tunnel" "$(service_status "$ARGO_SERVICE")"
+  state_value "代理核心" "$(core_label) · $(service_status "$SING_SERVICE")"
   key_value "Argo 域名" "$ARGO_DOMAIN"
   endpoint_value "优选入口" "$SERVER" "$SERVER_PORT"
   key_value "Argo 回源" "127.0.0.1:${ORIGIN_PORT}"
-  key_value "组件版本" "$(component_versions)"
+  key_value "版本信息" "$(component_versions)"
   state_value "WARP 分流" "$(warp_status)"
   key_value "节点文件" "$NODES_FILE"
   key_value "管理命令" "$COMMAND_NAME"
@@ -1419,7 +1532,7 @@ install_project() {
 install_menu() {
   local choice
   while true; do
-    brand "${PROJECT_NAME} · 安装 / 更新"
+    brand "${PROJECT_NAME} · 安装 / 更新" back
     subsection "请选择安装来源"
     menu_item 1 "使用当前 VPS 本地脚本重装" "不更新项目脚本"
     menu_item 2 "从 GitHub 获取最新脚本安装" "可更新项目脚本"
@@ -1440,7 +1553,7 @@ begin_config_change() {
   cp -a "$ENV_FILE" "$NODES_CONFIG" "$SING_BOX_CONFIG" "$XRAY_CONFIG" "$NGINX_CONFIG" \
     "/etc/systemd/system/${SING_SERVICE}.service" "/etc/systemd/system/${ARGO_SERVICE}.service" \
     "$NODES_FILE" "$SUB_FILE" "$SUB_BASE64_FILE" "$SUB_CLASH_FILE" \
-    "$SUB_CLASH_PROVIDER_FILE" "$SUB_SING_BOX_FILE" "$SUB_SHADOWROCKET_FILE" \
+    "$SUB_CLASH_PROVIDER_FILE" "$SUB_SING_BOX_FILE" "$OBSOLETE_SUBSCRIPTION_FILE" \
     "$SUB_AUTO_QR_FILE" \
     "$CONFIG_SNAPSHOT/" 2>/dev/null || true
 }
@@ -1466,14 +1579,14 @@ apply_runtime_config() {
   [[ -f "$snapshot/${SING_SERVICE}.service" ]] && install -m 600 "$snapshot/${SING_SERVICE}.service" "/etc/systemd/system/${SING_SERVICE}.service"
   [[ -f "$snapshot/${ARGO_SERVICE}.service" ]] && install -m 600 "$snapshot/${ARGO_SERVICE}.service" "/etc/systemd/system/${ARGO_SERVICE}.service"
   rm -f "$NODES_FILE" "$SUB_FILE" "$SUB_BASE64_FILE" "$SUB_CLASH_FILE" \
-    "$SUB_CLASH_PROVIDER_FILE" "$SUB_SING_BOX_FILE" "$SUB_SHADOWROCKET_FILE" "$SUB_AUTO_QR_FILE"
+    "$SUB_CLASH_PROVIDER_FILE" "$SUB_SING_BOX_FILE" "$OBSOLETE_SUBSCRIPTION_FILE" "$SUB_AUTO_QR_FILE"
   [[ -f "$snapshot/$(basename "$NODES_FILE")" ]] && install -m 600 "$snapshot/$(basename "$NODES_FILE")" "$NODES_FILE"
   [[ -f "$snapshot/$(basename "$SUB_FILE")" ]] && install -m 644 "$snapshot/$(basename "$SUB_FILE")" "$SUB_FILE"
   [[ -f "$snapshot/$(basename "$SUB_BASE64_FILE")" ]] && install -m 644 "$snapshot/$(basename "$SUB_BASE64_FILE")" "$SUB_BASE64_FILE"
   [[ -f "$snapshot/$(basename "$SUB_CLASH_FILE")" ]] && install -m 644 "$snapshot/$(basename "$SUB_CLASH_FILE")" "$SUB_CLASH_FILE"
   [[ -f "$snapshot/$(basename "$SUB_CLASH_PROVIDER_FILE")" ]] && install -m 644 "$snapshot/$(basename "$SUB_CLASH_PROVIDER_FILE")" "$SUB_CLASH_PROVIDER_FILE"
   [[ -f "$snapshot/$(basename "$SUB_SING_BOX_FILE")" ]] && install -m 644 "$snapshot/$(basename "$SUB_SING_BOX_FILE")" "$SUB_SING_BOX_FILE"
-  [[ -f "$snapshot/$(basename "$SUB_SHADOWROCKET_FILE")" ]] && install -m 644 "$snapshot/$(basename "$SUB_SHADOWROCKET_FILE")" "$SUB_SHADOWROCKET_FILE"
+  [[ -f "$snapshot/$(basename "$OBSOLETE_SUBSCRIPTION_FILE")" ]] && install -m 644 "$snapshot/$(basename "$OBSOLETE_SUBSCRIPTION_FILE")" "$OBSOLETE_SUBSCRIPTION_FILE"
   [[ -f "$snapshot/$(basename "$SUB_AUTO_QR_FILE")" ]] && install -m 644 "$snapshot/$(basename "$SUB_AUTO_QR_FILE")" "$SUB_AUTO_QR_FILE"
   rm -rf "$snapshot"
   load_env
@@ -1484,20 +1597,24 @@ apply_runtime_config() {
 
 list_node_profiles() {
   local tag protocol path port socks
-  printf '%s%s标签              协议      WS 路径               端口    出站%s\n' \
+  printf '%s%s标签            协议     WS 路径             端口   出站%s\n' \
     "$C_BOLD" "$C_BRIGHT_CYAN" "$C_RESET"
-  printf '%s%s%s\n' "$C_DIM" '----------------  --------  --------------------  ------  ------' "$C_RESET"
+  printf '%s%s%s\n' "$C_DIM" '--------------  -------  ------------------  -----  ------------' "$C_RESET"
   while IFS='|' read -r tag protocol path port socks; do
-    printf '%s%-16s%s  %s%-8s%s  %-20s  %s%-6s%s  %s\n' \
-      "$C_WHITE" "$tag" "$C_RESET" "$C_BRIGHT_MAGENTA" "$protocol" "$C_RESET" "$path" \
-      "$C_BRIGHT_YELLOW" "$port" "$C_RESET" "${socks:-direct}"
+    printf '%s' "$C_BRIGHT_WHITE"; pad_right "$tag" 14; printf '%s  %s' "$C_RESET" "$C_BRIGHT_MAGENTA"
+    pad_right "$protocol" 7; printf '%s  %s' "$C_RESET" "$C_BRIGHT_WHITE"; pad_right "$path" 18
+    printf '%s  %s' "$C_RESET" "$C_BRIGHT_YELLOW"; pad_right "$port" 5; printf '%s  ' "$C_RESET"
+    if [[ -n "$socks" ]]; then
+      printf '%sSOCKS5%s\n' "$C_BRIGHT_CYAN" "$C_RESET"
+    else
+      printf '%sdirect%s\n' "$C_BRIGHT_GREEN" "$C_RESET"
+    fi
   done <"$NODES_CONFIG"
 }
 
 add_node_profile() {
   local tag protocol path port socks default_port
-  brand "${PROJECT_NAME} · 添加节点"
-  key_value "退出方式" "输入 0 返回"
+  brand "${PROJECT_NAME} · 添加节点" cancel
   begin_config_change
   default_port="$(next_node_port)"
   read_input "节点标签（字母/数字/_/-）: " tag
@@ -1527,8 +1644,7 @@ add_node_profile() {
 
 change_origin_port() {
   local value temp next_port
-  brand "${PROJECT_NAME} · 修改回源端口"
-  key_value "退出方式" "输入 0 返回"
+  brand "${PROJECT_NAME} · Argo Tunnel 回源端口" cancel
   begin_config_change
   read_input "新的 Argo Tunnel 回源端口 [${ORIGIN_PORT}]: " value
   is_exit_input "$value" && { cancel_config_change; return 0; }
@@ -1548,16 +1664,15 @@ change_origin_port() {
 
 delete_node_profile() {
   local tag temp answer
-  brand "${PROJECT_NAME} · 删除节点"
+  brand "${PROJECT_NAME} · 删除节点" cancel
   list_node_profiles
-  key_value "退出方式" "输入 0 返回"
   begin_config_change
   read_input "要删除的节点标签: " tag
   is_exit_input "$tag" && { cancel_config_change; return 0; }
   awk -F'|' -v wanted="$tag" '$1 == wanted {found=1} END {exit !found}' "$NODES_CONFIG" ||
     die "未找到节点标签：${tag}"
   [[ "$(wc -l <"$NODES_CONFIG")" -gt 1 ]] || die "至少必须保留一个节点。"
-  read_input "确认删除节点 ${tag}？[y/N，0 返回]: " answer
+  read_input "确认删除节点 ${tag}？[y/N]: " answer
   is_exit_input "$answer" && { cancel_config_change; return 0; }
   [[ "$answer" =~ ^[Yy]$ ]] || { cancel_config_change; return 0; }
   temp="$(mktemp)"
@@ -1569,9 +1684,8 @@ delete_node_profile() {
 
 edit_node_profile() {
   local wanted tag protocol path port socks new_tag new_protocol new_path new_port new_socks temp
-  brand "${PROJECT_NAME} · 修改节点"
+  brand "${PROJECT_NAME} · 修改节点" cancel
   list_node_profiles
-  key_value "退出方式" "输入 0 返回"
   read_input "要修改的节点标签: " wanted
   is_exit_input "$wanted" && { return_notice; return 0; }
   while IFS='|' read -r tag protocol path port socks; do
@@ -1587,7 +1701,7 @@ edit_node_profile() {
   is_exit_input "$new_path" && { cancel_config_change; return 0; }
   read_input "新本地端口 [${port}]: " new_port
   is_exit_input "$new_port" && { cancel_config_change; return 0; }
-  read_input "新 SOCKS5 [${socks:-direct}]（留空保持，输入 - 改为直连）: " new_socks
+  read_input "新 SOCKS5 [$([[ -n "$socks" ]] && printf '已配置' || printf 'direct')]（留空保持，输入 - 改为直连）: " new_socks
   is_exit_input "$new_socks" && { cancel_config_change; return 0; }
   tag="${new_tag:-$tag}"; protocol="${new_protocol:-$protocol}"
   protocol="${protocol,,}"; path="${new_path:-$path}"; port="${new_port:-$port}"
@@ -1612,7 +1726,7 @@ edit_node_profile() {
 configure_warp() {
   local choice port targets domain normalized output item old_ifs answer
   while true; do
-    brand "${PROJECT_NAME} · WARP 网址分流"
+    brand "${PROJECT_NAME} · WARP 网址分流" back
     key_value "当前状态" "$([[ "$WARP_ENABLED" == "1" ]] && echo 已启用 || echo 未启用)"
     key_value "代理端口" "$WARP_PROXY_PORT"
     key_value "目标域名" "${WARP_DOMAINS:-无}"
@@ -1626,7 +1740,6 @@ configure_warp() {
     read_choice "请选择："; choice="$REPLY"
     case "$choice" in
       1)
-        key_value "退出方式" "输入 0 返回"
         read_input "WARP 本地 SOCKS5 端口 [${WARP_PROXY_PORT}]: " port
         is_exit_input "$port" && { return_notice; continue; }
         port="${port:-$WARP_PROXY_PORT}"
@@ -1649,7 +1762,6 @@ configure_warp() {
       2)
         [[ "$WARP_ENABLED" == "1" ]] || die "请先启用 WARP 分流。"
         key_value "已有域名" "$WARP_DOMAINS"
-        key_value "退出方式" "输入 0 返回"
         read_input "要添加的网址/域名（可用逗号分隔）: " targets
         is_exit_input "$targets" && { return_notice; continue; }
         targets="$(normalize_warp_domains "$targets")"
@@ -1659,7 +1771,6 @@ configure_warp() {
         ;;
       3)
         [[ "$WARP_ENABLED" == "1" ]] || die "WARP 分流尚未启用。"
-        key_value "退出方式" "输入 0 返回"
         read_input "要删除的网址或域名: " domain
         is_exit_input "$domain" && { return_notice; continue; }
         normalized="$(normalize_warp_domains "$domain")"
@@ -1676,7 +1787,7 @@ configure_warp() {
         apply_runtime_config
         ;;
       4)
-        read_input "确认停用 WARP 分流？[y/N，0 返回]: " answer
+        read_input "确认停用 WARP 分流？[y/N]: " answer
         is_exit_input "$answer" && { return_notice; continue; }
         [[ "$answer" =~ ^[Yy]$ ]] || { yellow "已取消停用 WARP 分流。"; continue; }
         begin_config_change
@@ -1693,12 +1804,16 @@ switch_proxy_core() {
   local choice requested
   require_root
   load_env
-  brand "${PROJECT_NAME} · 切换代理核心"
+  brand "${PROJECT_NAME} · 切换代理核心" back
   key_value "当前核心" "$(core_label)"
-  key_value "共享配置" "argofusion.env / nodes.conf / Nginx / 订阅"
-  key_value "保留配置" "${SING_BOX_CONFIG} / ${XRAY_CONFIG}"
-  key_value "退出方式" "输入 0 返回"
-  read_input "请选择新核心 [1 Sing-box / 2 Xray]: " choice
+  key_value "共享配置" "环境配置 · 节点定义 · Nginx · 订阅"
+  key_value "保留配置" "sing-box.json · xray.json"
+  section "选择核心"
+  menu_item 1 "Sing-box"
+  menu_item 2 "Xray"
+  menu_item 0 "返回"
+  ui_line
+  read_choice "请选择："; choice="$REPLY"
   is_exit_input "$choice" && { return_notice; return 0; }
   case "$choice" in
     1) requested="sing-box" ;;
@@ -1723,7 +1838,7 @@ manage_config() {
   [[ -f "$ENV_FILE" ]] || die "${PROJECT_NAME} 尚未安装。"
   ensure_nodes_config
   while true; do
-    brand "${PROJECT_NAME} · 集中配置"
+    brand "${PROJECT_NAME} · 集中配置" back
     subsection "基础配置"
     menu_item 1 "Token / Argo 域名"
     menu_item 2 "Cloudflare 优选入口"
@@ -1735,14 +1850,17 @@ manage_config() {
     menu_item 7 "修改节点"
     menu_item 8 "删除节点"
     menu_item 9 "WARP 网址分流"
-    menu_item 10 "切换代理核心" "当前 $(core_label)"
     menu_item 0 "返回"
     ui_line
     read_choice "请选择："; choice="$REPLY"
     case "$choice" in
       1)
+        brand "${PROJECT_NAME} · Token / Argo 域名" cancel
+        subsection "当前配置"
+        key_value "Argo 域名" "$ARGO_DOMAIN"
+        key_value "Token 状态" "$([[ -n "$ARGO_TOKEN" ]] && printf '已配置' || printf '未配置')"
+        section "修改配置"
         begin_config_change
-        key_value "退出方式" "输入 0 返回"
         read_input "新 Token [留空保持]: " value
         is_exit_input "$value" && { cancel_config_change; continue; }
         ARGO_TOKEN="${value:-$ARGO_TOKEN}"
@@ -1754,8 +1872,9 @@ manage_config() {
         apply_runtime_config
         ;;
       2)
+        brand "${PROJECT_NAME} · Cloudflare 优选入口" cancel
+        endpoint_value "当前入口" "$SERVER" "$SERVER_PORT"
         begin_config_change
-        key_value "退出方式" "输入 0 返回"
         read_input "新优选入口 域名/IP:端口: " endpoint
         is_exit_input "$endpoint" && { cancel_config_change; continue; }
         parse_endpoint "$endpoint"
@@ -1763,8 +1882,9 @@ manage_config() {
         ;;
       3) change_origin_port ;;
       4)
+        brand "${PROJECT_NAME} · 全局 UUID" cancel
+        key_value "当前 UUID" "$UUID"
         begin_config_change
-        key_value "退出方式" "输入 0 返回"
         read_input "新 UUID: " value
         is_exit_input "$value" && { cancel_config_change; continue; }
         valid_uuid "$value" || die "UUID 格式错误。"
@@ -1776,9 +1896,8 @@ manage_config() {
       7) edit_node_profile ;;
       8) delete_node_profile ;;
       9) configure_warp ;;
-      10) switch_proxy_core ;;
       0) return ;;
-      *) yellow "请输入 0 到 10。" ;;
+      *) yellow "请输入 0 到 9。" ;;
     esac
   done
 }
@@ -1791,7 +1910,6 @@ backup_project() {
   brand "${PROJECT_NAME} · 备份节点配置"
   key_value "节点配置" "$NODES_CONFIG"
   key_value "默认目录" "$BACKUP_DIR"
-  key_value "退出方式" "输入 0 返回"
   validate_nodes_config
   if [[ -z "$output" ]]; then
     read_input "请输入节点备份文件夹或 .tar.gz 路径 [${BACKUP_DIR}]: " output
@@ -1862,7 +1980,6 @@ restore_project() {
   local archive="${1:-}" stage archive_copy latest nodes_source
   require_root
   brand "${PROJECT_NAME} · 恢复节点配置"
-  key_value "退出方式" "输入 0 返回"
   if [[ -z "$archive" ]]; then
     read_input "请输入节点备份文件或目录 [${BACKUP_DIR}，留空使用最新备份]: " archive
     is_exit_input "$archive" && { return_notice; return 0; }
@@ -1936,7 +2053,7 @@ colorize_journal() {
 }
 
 doctor() {
-  local failed=0 token_in_unit=0 warp_target ip memory
+  local failed=0 token_in_unit=0 warp_target ip memory directory mode log_errors=0
   require_root
   load_env
   ensure_nodes_config
@@ -1960,6 +2077,15 @@ doctor() {
   fi
   if core_check >/dev/null 2>&1; then green "$(core_label) 配置：有效"; else red "$(core_label) 配置：无效"; failed=1; fi
   if nginx -t >/dev/null 2>&1; then green "Nginx 配置：有效"; else red "Nginx 配置：无效"; failed=1; fi
+  for directory in "$CONFIG_DIR" "$DATA_DIR" "$SUBSCRIPTION_DIR"; do
+    mode="$(stat -c '%a' "$directory" 2>/dev/null || true)"
+    case "$directory:$mode" in
+      "$CONFIG_DIR:700") green "config：目录存在 · 权限 700" ;;
+      "$DATA_DIR:700") green "data：目录存在 · 权限 700" ;;
+      "$SUBSCRIPTION_DIR:755") green "subscriptions：目录存在 · 权限 755" ;;
+      *) red "$(basename "$directory") 目录权限异常：当前 ${mode:-不存在}"; failed=1 ;;
+    esac
+  done
   [[ -f "/etc/systemd/system/${ARGO_SERVICE}.service" ]] &&
     grep -Fq -- "--token ${ARGO_TOKEN}" "/etc/systemd/system/${ARGO_SERVICE}.service" && token_in_unit=1
   ((token_in_unit)) && green "Token：已配置且服务文件一致" || { red "Token：缺失或服务文件未同步"; failed=1; }
@@ -1985,38 +2111,47 @@ doctor() {
     yellow "WARP：未启用"
   fi
   health_check || failed=1
-  section "最近日志"
   journalctl -u "$SING_SERVICE" -u "$ARGO_SERVICE" -n 30 --no-pager -o short-iso 2>/dev/null |
-    colorize_journal || true
+    grep -qE ' ERROR | ERROR\[' && log_errors=1 || true
+  section "最近日志"
+  if ((log_errors)); then
+    journalctl -u "$SING_SERVICE" -u "$ARGO_SERVICE" -n 30 --no-pager -o short-iso 2>/dev/null |
+      colorize_journal || true
+  else
+    green "最近 30 行项目日志未发现 ERROR。"
+  fi
   return "$failed"
 }
 
 show_nodes() {
-  local node index=0 auto_url
+  local node tag protocol path port socks index=0 auto_url
   load_env
   [[ -f "$NODES_FILE" ]] || die "节点文件不存在，请先安装。"
   auto_url="https://${ARGO_DOMAIN}/${UUID}/auto"
   brand "${PROJECT_NAME} · 节点与订阅"
   UI_TIGHT_SECTION=1
-  subsection "配置文件索引"
-  link_value "文件索引" "https://${ARGO_DOMAIN}/${UUID}/"
-  link_value "自动适配" "$auto_url"
-  link_value "原始明文" "https://${ARGO_DOMAIN}/${UUID}/raw"
-  link_value "Base64" "https://${ARGO_DOMAIN}/${UUID}/base64"
-  link_value "Clash" "https://${ARGO_DOMAIN}/${UUID}/clash"
-  link_value "Clash Provider" "https://${ARGO_DOMAIN}/${UUID}/proxies"
-  link_value "sing-box" "https://${ARGO_DOMAIN}/${UUID}/sing-box"
-  link_value "Shadowrocket" "https://${ARGO_DOMAIN}/${UUID}/shadowrocket"
+  subsection "订阅入口"
+  link_value "订阅面板" "https://${ARGO_DOMAIN}/${UUID}/"
+  link_value "自动适配订阅" "$auto_url"
+  link_value "原始订阅" "https://${ARGO_DOMAIN}/${UUID}/raw"
+  link_value "Base64 通用订阅" "https://${ARGO_DOMAIN}/${UUID}/base64"
+  link_value "Clash/Mihomo 订阅" "https://${ARGO_DOMAIN}/${UUID}/clash"
+  link_value "Clash Provider 订阅" "https://${ARGO_DOMAIN}/${UUID}/proxies"
+  link_value "sing-box 订阅" "https://${ARGO_DOMAIN}/${UUID}/sing-box"
   if command -v qrencode >/dev/null 2>&1; then
     section "自动适配订阅 QR"
     qrencode -t ANSIUTF8 "$auto_url"
   fi
-  section "明文节点"
-  while IFS= read -r node; do
+  section "原始节点"
+  while IFS='|' read -r tag protocol path port socks; do
+    IFS= read -r node <&3 || break
     ((index+=1))
     ((index > 1)) && printf '\n'
-    printf '%s%s[节点 %d]%s\n%s\n' "$C_BOLD" "$C_BRIGHT_CYAN" "$index" "$C_RESET" "$node"
-  done <"$NODES_FILE"
+    printf '%s%s[%02d]%s %s%s%s %s·%s %s%s%s %s· WS %s%s%s\n%s%s%s\n' \
+      "$C_BOLD" "$C_BRIGHT_CYAN" "$index" "$C_RESET" "$C_BRIGHT_WHITE" "$tag" "$C_RESET" \
+      "$C_BRIGHT_WHITE" "$C_RESET" "$C_BRIGHT_MAGENTA" "${protocol^^}" "$C_RESET" \
+      "$C_BRIGHT_WHITE" "$C_BRIGHT_YELLOW" "$path" "$C_RESET" "$C_BRIGHT_WHITE" "$node" "$C_RESET"
+  done <"$NODES_CONFIG" 3<"$NODES_FILE"
   printf '\n'
 }
 
@@ -2025,10 +2160,14 @@ toggle_service() {
   require_root
   systemctl list-unit-files "${service}.service" --no-legend 2>/dev/null | grep -q "^${service}.service" ||
     die "${label} 尚未安装。"
+  brand "${PROJECT_NAME} · ${label}"
+  state_value "当前状态" "$(service_status "$service")"
   if systemctl is-active --quiet "$service"; then
+    info "正在停止 ${label}..."
     systemctl disable --now "$service"
     yellow "${label} 已关闭。"
   else
+    info "正在启动 ${label}..."
     systemctl enable --now "$service"
     green "${label} 已开启。"
   fi
@@ -2043,7 +2182,7 @@ sync_versions() {
   load_env
   [[ -f "/etc/systemd/system/${ARGO_SERVICE}.service" && -f "/etc/systemd/system/${SING_SERVICE}.service" ]] ||
     die "Argo 或代理核心服务文件不存在，请先执行安装。"
-  brand "${PROJECT_NAME} · 核心更新"
+  brand "${PROJECT_NAME} · 组件更新" back
   detect_arch
   old_argo="$(local_cloudflared_version || true)"
   old_core="$(local_core_version || true)"
@@ -2055,7 +2194,7 @@ sync_versions() {
   key_value "当前版本" "${old_argo:-未安装}"
   key_value "目标版本" "${new_argo:-未知}"
   if [[ "$old_argo" != "$new_argo" ]]; then
-    read_input "是否更新 Argo / cloudflared？[y/N，0 返回]: " answer
+    read_input "是否更新 Argo / cloudflared？[y/N]: " answer
     is_exit_input "$answer" && { return_notice; return 0; }
     [[ "$answer" =~ ^[Yy]$ ]] && update_argo=1
   else
@@ -2065,7 +2204,7 @@ sync_versions() {
   key_value "当前版本" "${old_core:-未安装}"
   key_value "目标版本" "${new_core:-未知}"
   if [[ "$old_core" != "$new_core" ]]; then
-    read_input "是否更新 $(core_label)？[y/N，0 返回]: " answer
+    read_input "是否更新 $(core_label)？[y/N]: " answer
     is_exit_input "$answer" && { return_notice; return 0; }
     [[ "$answer" =~ ^[Yy]$ ]] && update_core=1
   else
@@ -2124,10 +2263,10 @@ manage_bbr() {
   local answer
   require_root
   command -v curl >/dev/null 2>&1 || die "缺少 curl，无法启动 BBR/内核管理脚本。"
-  brand "${PROJECT_NAME} · 第三方 BBR / DD 工具"
+  brand "${PROJECT_NAME} · 第三方 BBR / DD 工具" cancel
   yellow "第三方工具：升级内核、安装 BBR、DD 系统均由 ylx2016/Linux-NetSpeed 脚本提供。"
   yellow "${PROJECT_NAME} 不维护其代码、功能与执行结果。"
-  read_input "确认启动第三方脚本？[y/N，0 返回]: " answer
+  read_input "确认启动第三方脚本？[y/N]: " answer
   is_exit_input "$answer" && { return_notice; return 0; }
   [[ "$answer" =~ ^[Yy]$ ]] || { yellow "已取消启动第三方脚本。"; return 0; }
   info "正在启动第三方脚本..."
@@ -2139,8 +2278,8 @@ restart_services() {
   local answer
   require_root
   load_env
-  brand "${PROJECT_NAME} · 重启服务"
-  read_input "确认重启 Nginx、$(core_label) 与 Argo？[y/N，0 返回]: " answer
+  brand "${PROJECT_NAME} · 重启服务" cancel
+  read_input "确认重启 Nginx、$(core_label) 与 Argo？[y/N]: " answer
   is_exit_input "$answer" && { return_notice; return 0; }
   [[ "$answer" =~ ^[Yy]$ ]] || { yellow "已取消重启。"; return 0; }
   info "正在重启 Nginx、$(core_label) 与 Argo..."
@@ -2165,19 +2304,19 @@ uninstall_project() {
   resolved_work_dir="$(readlink -f "$WORK_DIR" 2>/dev/null || true)"
   [[ "$resolved_work_dir" == "$WORK_DIR" ]] ||
     die "项目目录解析结果异常，拒绝递归删除：${WORK_DIR}"
-  brand "${PROJECT_NAME} · 卸载"
+  brand "${PROJECT_NAME} · 卸载" cancel
   yellow "即将删除以下项目内容："
   printf '  %s•%s %s systemd 服务\n' "$C_BRIGHT_YELLOW" "$C_RESET" "$PROJECT_NAME"
   printf '  %s•%s 私有 Argo / cloudflared 核心\n' "$C_BRIGHT_YELLOW" "$C_RESET"
   printf '  %s•%s 私有 Sing-box / Xray 核心\n' "$C_BRIGHT_YELLOW" "$C_RESET"
   printf '  %s•%s %s 配置、订阅与备份\n' "$C_BRIGHT_YELLOW" "$C_RESET" "$WORK_DIR"
   printf '  %s•%s %s 命令入口\n\n' "$C_BRIGHT_YELLOW" "$C_RESET" "$COMMAND_NAME"
-  read_input "确认彻底卸载 ${PROJECT_NAME}？[y/N，0 返回]: " answer
+  read_input "确认彻底卸载 ${PROJECT_NAME}？[y/N]: " answer
   is_exit_input "$answer" && { return_notice; return 0; }
   [[ "$answer" =~ ^[Yy]$ ]] || { yellow "已取消卸载。"; return 0; }
   if command -v nginx >/dev/null 2>&1 ||
     dpkg-query -W -f='${Status}' nginx 2>/dev/null | grep -q 'install ok installed'; then
-    read_input "同时卸载 Nginx？可能被其他网站使用，默认保留 [y/N，0 返回]: " answer
+    read_input "同时卸载 Nginx？可能被其他网站使用，默认保留 [y/N]: " answer
     is_exit_input "$answer" && { return_notice; return 0; }
     [[ "$answer" =~ ^[Yy]$ ]] && remove_nginx=1
   fi
@@ -2185,11 +2324,11 @@ uninstall_project() {
     dpkg-query -W -f='${Status}' cloudflare-warp 2>/dev/null | grep -q 'install ok installed' ||
     [[ -e /etc/apt/sources.list.d/cloudflare-client.list ||
       -e /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg ]]; then
-    read_input "同时卸载 Cloudflare WARP 客户端、注册与软件源？默认保留 [y/N，0 返回]: " answer
+    read_input "同时卸载 Cloudflare WARP 客户端、注册与软件源？默认保留 [y/N]: " answer
     is_exit_input "$answer" && { return_notice; return 0; }
     [[ "$answer" =~ ^[Yy]$ ]] && remove_warp=1
   fi
-  read_input "同时卸载脚本使用的通用工具 curl/ca-certificates/openssl/tar/unzip/qrencode/gnupg？可能被其他程序使用，默认保留 [y/N，0 返回]: " answer
+  read_input "同时卸载脚本使用的通用工具 curl/ca-certificates/openssl/tar/unzip/qrencode/gnupg？可能被其他程序使用，默认保留 [y/N]: " answer
   is_exit_input "$answer" && { return_notice; return 0; }
   [[ "$answer" =~ ^[Yy]$ ]] && remove_tools=1
 
@@ -2206,7 +2345,7 @@ uninstall_project() {
   remove_legacy_symlink
   rm -f "$ENV_FILE" "$NODES_CONFIG" "$SING_BOX_CONFIG" "$XRAY_CONFIG" "$LOCAL_SCRIPT" "$MANAGED_FILE" \
     "$SUB_FILE" "$SUB_BASE64_FILE" "$SUB_CLASH_FILE" "$SUB_CLASH_PROVIDER_FILE" \
-    "$SUB_SING_BOX_FILE" "$SUB_SHADOWROCKET_FILE" "$SUB_AUTO_QR_FILE" \
+    "$SUB_SING_BOX_FILE" "$OBSOLETE_SUBSCRIPTION_FILE" "$SUB_AUTO_QR_FILE" \
     "$BIN_DIR/sing-box" "$BIN_DIR/xray" "$BIN_DIR/cloudflared"
   rm -rf "$BACKUP_DIR"
   rm -rf "$resolved_work_dir"
@@ -2241,50 +2380,52 @@ menu() {
     load_env
     control_panel
     subsection "运行概览"
-    state_value "Argo 服务" "$(service_status "$ARGO_SERVICE")"
-    state_value "$(core_label) 服务" "$(service_status "$SING_SERVICE")"
+    state_value "Argo Tunnel" "$(service_status "$ARGO_SERVICE")"
+    state_value "代理核心" "$(core_label) · $(service_status "$SING_SERVICE")"
     if [[ -n "$ARGO_DOMAIN" ]]; then
       key_value "Argo 域名" "$ARGO_DOMAIN"
       endpoint_value "优选入口" "$SERVER" "$SERVER_PORT"
   key_value "Argo 回源" "127.0.0.1:${ORIGIN_PORT}"
     fi
-    key_value "组件版本" "$(component_versions)"
+    key_value "版本信息" "$(component_versions)"
     state_value "WARP 分流" "$(warp_status)"
     ui_line
-    brand "${PROJECT_NAME} · 控制中心"
+    brand "${PROJECT_NAME} · 控制中心" main
     UI_TIGHT_SECTION=1
     section "日常管理"
-    menu_item 1 "查看节点信息" "${COMMAND_NAME} -n"
+    menu_item 1 "查看节点与订阅" "${COMMAND_NAME} -n"
     menu_item 2 "开启/关闭 Argo" "${COMMAND_NAME} -a"
     menu_item 3 "开启/关闭 $(core_label)" "${COMMAND_NAME} -s"
-    menu_item 4 "集中配置" "${COMMAND_NAME} -c"
-    menu_item 5 "重启全部服务" "${COMMAND_NAME} -r"
-    menu_item 6 "完整诊断" "${COMMAND_NAME} -x"
+    menu_item 4 "切换代理核心" "当前 $(core_label)"
+    menu_item 5 "集中配置" "${COMMAND_NAME} -c"
+    menu_item 6 "重启全部服务" "${COMMAND_NAME} -r"
+    menu_item 7 "完整诊断" "${COMMAND_NAME} -x"
     section "维护工具"
-    menu_item 7 "安装 / 更新 ${PROJECT_NAME}" "${COMMAND_NAME} -i"
-    menu_item 8 "更新 Argo / $(core_label) 核心" "${COMMAND_NAME} -v"
-    menu_item 9 "备份节点配置" "${COMMAND_NAME} -k"
-    menu_item 10 "恢复节点配置" "${COMMAND_NAME} -l"
-    menu_item 11 "第三方 BBR / DD 工具" "${COMMAND_NAME} -b"
-    menu_item 12 "卸载 ${PROJECT_NAME}" "${COMMAND_NAME} -u"
+    menu_item 8 "安装 / 更新 ${PROJECT_NAME}" "${COMMAND_NAME} -i"
+    menu_item 9 "更新 Argo / $(core_label) 核心" "${COMMAND_NAME} -v"
+    menu_item 10 "备份节点配置" "${COMMAND_NAME} -k"
+    menu_item 11 "恢复节点配置" "${COMMAND_NAME} -l"
+    menu_item 12 "第三方 BBR / DD 工具" "${COMMAND_NAME} -b"
+    menu_item 13 "卸载 ${PROJECT_NAME}" "${COMMAND_NAME} -u"
     menu_item 0 "退出"
     ui_line
     read_choice "请选择："; choice="$REPLY"
     case "$choice" in
       1) show_nodes ;;
-      2) toggle_service "$ARGO_SERVICE" Argo ;;
-      3) toggle_service "$SING_SERVICE" "$(core_label)" ;;
-      4) manage_config ;;
-      5) restart_services ;;
-      6) doctor ;;
-      7) install_menu ;;
-      8) sync_versions ;;
-      9) backup_project ;;
-      10) restore_project ;;
-      11) manage_bbr ;;
-      12) uninstall_project ;;
+      2) toggle_service "$ARGO_SERVICE" "Argo Tunnel" ;;
+      3) toggle_service "$SING_SERVICE" "代理核心 $(core_label)" ;;
+      4) switch_proxy_core ;;
+      5) manage_config ;;
+      6) restart_services ;;
+      7) doctor ;;
+      8) install_menu ;;
+      9) sync_versions ;;
+      10) backup_project ;;
+      11) restore_project ;;
+      12) manage_bbr ;;
+      13) uninstall_project ;;
       0) exit 0 ;;
-      *) yellow "请输入 0 到 12。" ;;
+      *) yellow "请输入 0 到 13。" ;;
     esac
   done
 }
@@ -2292,8 +2433,8 @@ menu() {
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
   case "${1:-}" in
     -n) show_nodes ;;
-    -a) toggle_service "$ARGO_SERVICE" Argo ;;
-    -s) load_env; toggle_service "$SING_SERVICE" "$(core_label)" ;;
+    -a) toggle_service "$ARGO_SERVICE" "Argo Tunnel" ;;
+    -s) load_env; toggle_service "$SING_SERVICE" "代理核心 $(core_label)" ;;
     -c) manage_config ;;
     -r) restart_services ;;
     -x) doctor ;;
