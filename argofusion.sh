@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-VERSION="2.14.7"
+VERSION="2.14.8"
 PROJECT_NAME="ArgoFusion"
 COMMAND_NAME="af"
 PROJECT_REPO="Fiatnorm/ArgoFusion"

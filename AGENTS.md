@@ -138,7 +138,7 @@
 
 Git 远端可能同时包含原版 SBA 和本项目仓库。发布前必须执行 `git remote -v`，确认目标为 `https://github.com/Fiatnorm/ArgoFusion.git`，不得把本项目改动推送到 `fscarmen/sba`。
 
-向测试分支 `codex/test-directory-layout-v2.14.3` 推送前，必须为该次推送递增并统一 `argofusion.sh` 的 `VERSION`、README 版本记录、终端设计稿适用版本和 `argofusion.sh.sha256`；不得把未标记版本的改动推送到该测试分支，便于逐次核算。
+持续测试分支固定为 `codex/argofusion-test`，不得再向名称中固化版本号的 `codex/test-directory-layout-v2.14.3` 推送新测试改动。每次推送 `codex/argofusion-test` 前，必须为该次推送递增并统一 `argofusion.sh` 的 `VERSION`、README 版本记录、终端设计稿适用版本和 `argofusion.sh.sha256`；不得把未标记版本的改动推送到该测试分支，便于逐次核算。
 
 发布范围默认只包含：
 
