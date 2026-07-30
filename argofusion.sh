@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-VERSION="2.14.0"
+VERSION="2.14.1"
 PROJECT_NAME="ArgoFusion"
 COMMAND_NAME="af"
 PROJECT_REPO="Fiatnorm/ArgoFusion"
@@ -1056,6 +1056,7 @@ sync_argo_domain() {
     ARGO_DOMAIN="$actual_domain"
     save_env
     write_nginx_config
+    generate_nodes
     systemctl reload nginx
   elif [[ -z "$actual_domain" ]]; then
     # 固定 Token 隧道的日志并不保证输出 Public Hostname；保留用户输入值即可。
@@ -1372,6 +1373,7 @@ install_project() {
     rm -f "$LEGACY_NGINX_CONFIG"
   fi
   write_nginx_config
+  generate_nodes
   write_services
   create_local_command "$installer_source"
   rm -f "$installer_source"
@@ -1397,7 +1399,6 @@ install_project() {
   fi
   systemctl daemon-reload
   sync_argo_domain
-  generate_nodes
   rm -f "$LEGACY_NODES_FILE"
   if health_check; then
     green "${PROJECT_NAME} 安装 / 更新完成，核心链路检查通过。"

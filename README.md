@@ -1,4 +1,4 @@
-# ArgoFusion v2.14.0
+# ArgoFusion v2.14.1
 
 面向固定 Argo Token 隧道的中文轻量安装脚本，提供：
 
@@ -43,6 +43,8 @@ sudo ./argofusion.sh -i
 从 Argo-Singbox 升级时，脚本仅在 `/etc/asb/managed` 所有权标记有效且 `/etc/argofusion` 不存在时，将旧目录迁移为 `/etc/argofusion`，把 `asb.env` 与 `argo-singbox.sh` 分别改名为 `argofusion.env` 与 `argofusion.sh`，并临时保留兼容链接。新服务验证通过后才移除属于本项目的旧 `asb-*` 服务和兼容链接；失败则恢复旧服务。两个真实目录同时存在或旧目录没有所有权标记时会停止并要求人工核对。
 
 迁移会先停止旧服务并等待节点端口释放，再启动新服务；若新服务启动失败，会先停用新服务再恢复旧服务，避免两套 sing-box 同时抢占节点端口。重新执行 v2.8.2 安装可修复旧版迁移失败后形成的新旧服务端口冲突。
+
+v2.14.1 将节点与订阅派生文件的生成提前到服务启动之前；即使后续服务同步或健康检查中断，`nodes.txt` 和 `subscription.*` 也不会缺失。若固定隧道日志纠正了 Argo 域名，脚本会重新生成节点和订阅，保证连接域名一致。
 
 v2.14.0 完成 ArgoFusion 本地命名迁移：安装入口为 `argofusion.sh`，配置目录为 `/etc/argofusion/`，服务为 `argofusion-core.service` 与 `argofusion-tunnel.service`，Nginx 配置为 `argofusion.conf`，短命令为 `af`。升级时仅迁移带所有权标记的 Argo-Singbox 安装；不依赖或修改原版 SBA 对照树。移除了三个未调用的函数，并收紧旧命令清理为仅删除符号链接。
 
