@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-VERSION="2.14.2"
+VERSION="2.14.3"
 PROJECT_NAME="ArgoFusion"
 COMMAND_NAME="af"
 PROJECT_REPO="Fiatnorm/ArgoFusion"
@@ -9,25 +9,28 @@ PROJECT_BRANCH="main"
 WORK_DIR="/etc/argofusion"
 WORK_DIR_NAME="${WORK_DIR##*/}"
 LEGACY_WORK_DIR="/etc/asb"
-ENV_FILE="${WORK_DIR}/argofusion.env"
-SING_BOX_CONFIG="${WORK_DIR}/sing-box.json"
-XRAY_CONFIG="${WORK_DIR}/xray.json"
+CONFIG_DIR="${WORK_DIR}/config"
+DATA_DIR="${WORK_DIR}/data"
+SUBSCRIPTION_DIR="${WORK_DIR}/subscriptions"
+ENV_FILE="${CONFIG_DIR}/argofusion.env"
+SING_BOX_CONFIG="${CONFIG_DIR}/sing-box.json"
+XRAY_CONFIG="${CONFIG_DIR}/xray.json"
 NGINX_CONFIG="/etc/nginx/conf.d/argofusion.conf"
 LEGACY_NGINX_CONFIG="/etc/nginx/conf.d/argo-singbox.conf"
-NODES_FILE="${WORK_DIR}/nodes.txt"
+NODES_FILE="${DATA_DIR}/nodes.txt"
 LEGACY_NODES_FILE="/root/argo-singbox_nodes.txt"
 LOCAL_SCRIPT="${WORK_DIR}/argofusion.sh"
 BIN_DIR="${WORK_DIR}/bin"
 BACKUP_DIR="${WORK_DIR}/backup"
 MANAGED_FILE="${WORK_DIR}/managed"
-NODES_CONFIG="${WORK_DIR}/nodes.conf"
-SUB_FILE="${WORK_DIR}/subscription.txt"
-SUB_BASE64_FILE="${WORK_DIR}/subscription.base64"
-SUB_CLASH_FILE="${WORK_DIR}/subscription.clash.yaml"
-SUB_CLASH_PROVIDER_FILE="${WORK_DIR}/subscription.proxies.yaml"
-SUB_SING_BOX_FILE="${WORK_DIR}/subscription.sing-box.json"
-SUB_SHADOWROCKET_FILE="${WORK_DIR}/subscription.shadowrocket"
-SUB_AUTO_QR_FILE="${WORK_DIR}/subscription.auto.svg"
+NODES_CONFIG="${CONFIG_DIR}/nodes.conf"
+SUB_FILE="${SUBSCRIPTION_DIR}/subscription.txt"
+SUB_BASE64_FILE="${SUBSCRIPTION_DIR}/subscription.base64"
+SUB_CLASH_FILE="${SUBSCRIPTION_DIR}/subscription.clash.yaml"
+SUB_CLASH_PROVIDER_FILE="${SUBSCRIPTION_DIR}/subscription.proxies.yaml"
+SUB_SING_BOX_FILE="${SUBSCRIPTION_DIR}/subscription.sing-box.json"
+SUB_SHADOWROCKET_FILE="${SUBSCRIPTION_DIR}/subscription.shadowrocket"
+SUB_AUTO_QR_FILE="${SUBSCRIPTION_DIR}/subscription.auto.svg"
 SING_SERVICE="argofusion-core"
 ARGO_SERVICE="argofusion-tunnel"
 LEGACY_SING_SERVICE="asb-sing-box"
@@ -245,10 +248,79 @@ load_env() {
   CORE="${CORE:-sing-box}"
 }
 
+ensure_project_layout() {
+  install -d -m 700 "$CONFIG_DIR" "$DATA_DIR" "$SUBSCRIPTION_DIR"
+}
+
+verify_project_file_relocation() {
+  local source="$1" destination="$2"
+  [[ -e "$source" ]] || return 0
+  [[ -f "$source" && ! -L "$source" ]] ||
+    die "旧目录中的项目文件类型异常，拒绝迁移：${source}"
+  if [[ -e "$destination" ]]; then
+    [[ -f "$destination" && ! -L "$destination" ]] ||
+      die "新目录中的项目文件类型异常，拒绝迁移：${destination}"
+    cmp -s "$source" "$destination" ||
+      die "新旧目录中的项目文件内容不同，拒绝覆盖：${source}"
+  fi
+}
+
+relocate_project_file() {
+  local source="$1" destination="$2" mode="$3"
+  [[ -e "$source" ]] || return 0
+  if [[ -e "$destination" ]]; then
+    rm -f -- "$source"
+  else
+    mv -- "$source" "$destination"
+  fi
+  chmod "$mode" "$destination"
+}
+
+migrate_project_layout() {
+  local moved=0
+  [[ -f "$MANAGED_FILE" ]] || return 0
+
+  verify_project_file_relocation "${WORK_DIR}/argofusion.env" "$ENV_FILE"
+  verify_project_file_relocation "${WORK_DIR}/nodes.conf" "$NODES_CONFIG"
+  verify_project_file_relocation "${WORK_DIR}/sing-box.json" "$SING_BOX_CONFIG"
+  verify_project_file_relocation "${WORK_DIR}/xray.json" "$XRAY_CONFIG"
+  verify_project_file_relocation "${WORK_DIR}/nodes.txt" "$NODES_FILE"
+  verify_project_file_relocation "${WORK_DIR}/subscription.txt" "$SUB_FILE"
+  verify_project_file_relocation "${WORK_DIR}/subscription.base64" "$SUB_BASE64_FILE"
+  verify_project_file_relocation "${WORK_DIR}/subscription.clash.yaml" "$SUB_CLASH_FILE"
+  verify_project_file_relocation "${WORK_DIR}/subscription.proxies.yaml" "$SUB_CLASH_PROVIDER_FILE"
+  verify_project_file_relocation "${WORK_DIR}/subscription.sing-box.json" "$SUB_SING_BOX_FILE"
+  verify_project_file_relocation "${WORK_DIR}/subscription.shadowrocket" "$SUB_SHADOWROCKET_FILE"
+  verify_project_file_relocation "${WORK_DIR}/subscription.auto.svg" "$SUB_AUTO_QR_FILE"
+
+  [[ -e "${WORK_DIR}/argofusion.env" || -e "${WORK_DIR}/nodes.conf" ||
+    -e "${WORK_DIR}/sing-box.json" || -e "${WORK_DIR}/xray.json" ||
+    -e "${WORK_DIR}/nodes.txt" || -e "${WORK_DIR}/subscription.txt" ||
+    -e "${WORK_DIR}/subscription.base64" || -e "${WORK_DIR}/subscription.clash.yaml" ||
+    -e "${WORK_DIR}/subscription.proxies.yaml" || -e "${WORK_DIR}/subscription.sing-box.json" ||
+    -e "${WORK_DIR}/subscription.shadowrocket" || -e "${WORK_DIR}/subscription.auto.svg" ]] || return 0
+
+  ensure_project_layout
+  relocate_project_file "${WORK_DIR}/argofusion.env" "$ENV_FILE" 600
+  relocate_project_file "${WORK_DIR}/nodes.conf" "$NODES_CONFIG" 600
+  relocate_project_file "${WORK_DIR}/sing-box.json" "$SING_BOX_CONFIG" 600
+  relocate_project_file "${WORK_DIR}/xray.json" "$XRAY_CONFIG" 600
+  relocate_project_file "${WORK_DIR}/nodes.txt" "$NODES_FILE" 600
+  relocate_project_file "${WORK_DIR}/subscription.txt" "$SUB_FILE" 644
+  relocate_project_file "${WORK_DIR}/subscription.base64" "$SUB_BASE64_FILE" 644
+  relocate_project_file "${WORK_DIR}/subscription.clash.yaml" "$SUB_CLASH_FILE" 644
+  relocate_project_file "${WORK_DIR}/subscription.proxies.yaml" "$SUB_CLASH_PROVIDER_FILE" 644
+  relocate_project_file "${WORK_DIR}/subscription.sing-box.json" "$SUB_SING_BOX_FILE" 644
+  relocate_project_file "${WORK_DIR}/subscription.shadowrocket" "$SUB_SHADOWROCKET_FILE" 644
+  relocate_project_file "${WORK_DIR}/subscription.auto.svg" "$SUB_AUTO_QR_FILE" 644
+  moved=1
+  ((moved)) && green "已将现有配置、节点和订阅文件迁入分类目录。"
+}
+
 save_env() {
   local old_umask temp
   old_umask="$(umask)"
-  install -d -m 755 "$WORK_DIR"
+  ensure_project_layout
   umask 077
   temp="$(mktemp "${ENV_FILE}.tmp.XXXXXX")"
   {
@@ -1331,6 +1403,7 @@ install_project() {
     die "未知安装模式：${install_mode}"
   fi
   migrate_legacy_install
+  migrate_project_layout
   load_env
   prompt_install_values
   installer_source="$(mktemp)"
@@ -1339,6 +1412,7 @@ install_project() {
   install_dependencies
   assert_service_names_available
   install -d -m 755 "$WORK_DIR" "$BIN_DIR"
+  ensure_project_layout
   install -d -m 700 "$BACKUP_DIR"
   for file in "$ENV_FILE" "$NODES_CONFIG" "$SING_BOX_CONFIG" "$XRAY_CONFIG" "$NGINX_CONFIG" \
     "$LEGACY_NGINX_CONFIG" "$LOCAL_SCRIPT"; do

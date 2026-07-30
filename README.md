@@ -1,4 +1,4 @@
-# ArgoFusion v2.14.2
+# ArgoFusion v2.14.3
 
 面向固定 Argo Token 隧道的中文轻量安装脚本，提供：
 
@@ -31,18 +31,22 @@ sudo ./argofusion.sh -i
 /etc/argofusion/bin/sing-box
 /etc/argofusion/bin/xray
 /etc/argofusion/bin/cloudflared
-/etc/argofusion/sing-box.json
-/etc/argofusion/xray.json
-/etc/argofusion/nodes.txt
-/etc/argofusion/subscription.*
+/etc/argofusion/config/argofusion.env
+/etc/argofusion/config/nodes.conf
+/etc/argofusion/config/sing-box.json
+/etc/argofusion/config/xray.json
+/etc/argofusion/data/nodes.txt
+/etc/argofusion/subscriptions/subscription.*
 /etc/argofusion/backup/
 ```
 
-项目核心、配置、节点和订阅数据统一保存在 `/etc/argofusion/`。只有 systemd unit、Nginx 站点配置和 `/usr/local/bin/af` 命令入口按 Linux 系统约定保存在对应系统目录。服务使用 `argofusion-core.service` 和 `argofusion-tunnel.service`，不会覆盖系统已有的通用 `sing-box.service`、`xray.service` 或 `cloudflared.service`。
+项目核心、配置、节点和订阅数据统一保存在 `/etc/argofusion/`：`bin/` 为私有二进制，`config/` 为环境、节点和核心运行配置，`data/` 为明文节点，`subscriptions/` 为全部订阅产物，`backup/` 为节点备份。根目录仅保留项目脚本与所有权标记。升级到 v2.14.3 时，原根目录中的这些项目文件会在安装事务中无损迁入对应分类目录，并重新生成服务和 Nginx 引用；公网订阅 URL 不变。只有 systemd unit、Nginx 站点配置和 `/usr/local/bin/af` 命令入口按 Linux 系统约定保存在对应系统目录。服务使用 `argofusion-core.service` 和 `argofusion-tunnel.service`，不会覆盖系统已有的通用 `sing-box.service`、`xray.service` 或 `cloudflared.service`。
 
 从 Argo-Singbox 升级时，脚本仅在 `/etc/asb/managed` 所有权标记有效且 `/etc/argofusion` 不存在时，将旧目录迁移为 `/etc/argofusion`，把 `asb.env` 与 `argo-singbox.sh` 分别改名为 `argofusion.env` 与 `argofusion.sh`，并临时保留兼容链接。新服务验证通过后才移除属于本项目的旧 `asb-*` 服务和兼容链接；失败则恢复旧服务。两个真实目录同时存在或旧目录没有所有权标记时会停止并要求人工核对。
 
 迁移会先停止旧服务并等待节点端口释放，再启动新服务；若新服务启动失败，会先停用新服务再恢复旧服务，避免两套 sing-box 同时抢占节点端口。重新执行 v2.8.2 安装可修复旧版迁移失败后形成的新旧服务端口冲突。
+
+v2.14.3 重整 VPS 项目目录：环境、节点定义与两套核心 JSON 迁入 `/etc/argofusion/config/`，明文节点迁入 `/etc/argofusion/data/`，各类订阅和自动适配 QR 迁入 `/etc/argofusion/subscriptions/`。升级安装会先核对同名文件内容，拒绝覆盖冲突或异常文件类型，再迁移并重建 Nginx、核心服务与订阅；外部订阅 URL 保持不变。
 
 v2.14.2 修复 GitHub Release 压缩 JSON 的 SHA256 解析。Cloudflared、Sing-box 与 Xray 仍必须通过官方 Release 发布的 SHA256 校验；缺少或不匹配时继续拒绝安装。
 
@@ -190,11 +194,11 @@ sudo ./argofusion.sh -i
 
 ## 集中配置与分流
 
-`af -c` 集中修改 Token、Argo 域名、优选入口、Argo Tunnel 回源端口和全局 UUID，也可以添加、修改或删除 VLESS、VMess、Trojan 的 WS + TLS 节点。修改 Tunnel 回源端口时，节点监听端口从“回源端口 + 1”开始依次顺延；添加节点时默认使用当前最大监听端口的下一个端口。配置保存在 `/etc/argofusion/nodes.conf`。修改后还必须在 Cloudflare Public Hostname 中把 Service 同步为新的 `http://localhost:端口`。
+`af -c` 集中修改 Token、Argo 域名、优选入口、Argo Tunnel 回源端口和全局 UUID，也可以添加、修改或删除 VLESS、VMess、Trojan 的 WS + TLS 节点。修改 Tunnel 回源端口时，节点监听端口从“回源端口 + 1”开始依次顺延；添加节点时默认使用当前最大监听端口的下一个端口。配置保存在 `/etc/argofusion/config/nodes.conf`。修改后还必须在 Cloudflare Public Hostname 中把 Service 同步为新的 `http://localhost:端口`。
 
 ### 切换 Sing-box / Xray
 
-在 `af -c` 选择“切换代理核心”，输入 `1` 为 Sing-box、`2` 为 Xray。两种核心共用 `/etc/argofusion/argofusion.env`、`/etc/argofusion/nodes.conf`、Nginx、Argo Tunnel 和订阅文件；`/etc/argofusion/sing-box.json` 与 `/etc/argofusion/xray.json` 始终分别保留。切换会先检查目标二进制，必要时从官方 Release 下载、校验并原子安装，然后同时重建和校验两套 JSON，最后重启同一个 `argofusion-core.service`。失败会恢复切换前的环境、运行配置、服务文件和订阅文件。
+在 `af -c` 选择“切换代理核心”，输入 `1` 为 Sing-box、`2` 为 Xray。两种核心共用 `/etc/argofusion/config/argofusion.env`、`/etc/argofusion/config/nodes.conf`、Nginx、Argo Tunnel 和订阅文件；`/etc/argofusion/config/sing-box.json` 与 `/etc/argofusion/config/xray.json` 始终分别保留。切换会先检查目标二进制，必要时从官方 Release 下载、校验并原子安装，然后同时重建和校验两套 JSON，最后重启同一个 `argofusion-core.service`。失败会恢复切换前的环境、运行配置、服务文件和订阅文件。
 
 添加节点时可留空使用直连，也可输入 SOCKS5 出站：
 
@@ -231,7 +235,7 @@ WARP 只覆盖匹配的网址，不会替换其他节点的 SOCKS5 配置。`af 
 ## 诊断、备份与恢复
 
 - `af -x`：检查配置与 Token 同步、三个服务、全部动态监听端口、每条公网 WS 路径、核心版本，并输出最近 30 条项目日志。
-- `af -k [文件夹或文件.tar.gz]`：只备份 `/etc/argofusion/nodes.conf` 节点配置，默认保存到 `/etc/argofusion/backup/argofusion-nodes-backup-时间.tar.gz`；也可指定其他绝对路径。
+- `af -k [文件夹或文件.tar.gz]`：只备份 `/etc/argofusion/config/nodes.conf` 节点配置，默认保存到 `/etc/argofusion/backup/argofusion-nodes-backup-时间.tar.gz`；也可指定其他绝对路径。
 - `af -l [文件夹或文件.tar.gz]`：默认从 `/etc/argofusion/backup/` 选择最新节点归档，也可指定目录或完整文件。解压前会验证 gzip、成员路径与文件类型，拒绝目录穿越、符号链接和特殊文件；随后只恢复节点配置，重新生成当前内核配置、Nginx、订阅文件并验证服务，失败自动回滚。传入旧版完整 `/etc/argofusion` 归档时，也只读取其中的 `nodes.conf`，不会恢复旧脚本、旧核心或整个项目目录。
 
 `af -v` 会分别显示 Argo/cloudflared 与当前选择的 Sing-box 或 Xray 的本地、目标版本，并分别询问是否更新。只下载、备份、替换和重启用户确认更新的核心；下载文件会校验 SHA256/可执行性，并在替换前检查当前配置。验证失败时只回滚本次选择的核心。
@@ -254,7 +258,7 @@ https://你的域名/你的UUID/sing-box
 https://你的域名/你的UUID/shadowrocket
 ```
 
-`/你的UUID` 会跳转到文件索引；索引 HTML 由 Nginx 直接返回，避免目录 URL 使用文件 `alias` 导致 500。`/auto` 根据 User-Agent 为 Clash/Mihomo、sing-box 和 Shadowrocket 返回对应格式，其他客户端返回 Base64 通用订阅。`/raw` 以及 `/etc/argofusion/nodes.txt` 保留逐行明文 `vless://`、`vmess://`、`trojan://` 节点协议。旧的 `/argofusion-sub` 与 `/argofusion-sub-base64` 入口继续可用。
+`/你的UUID` 会跳转到文件索引；索引 HTML 由 Nginx 直接返回，避免目录 URL 使用文件 `alias` 导致 500。`/auto` 根据 User-Agent 为 Clash/Mihomo、sing-box 和 Shadowrocket 返回对应格式，其他客户端返回 Base64 通用订阅。`/raw` 以及 `/etc/argofusion/data/nodes.txt` 保留逐行明文 `vless://`、`vmess://`、`trojan://` 节点协议。旧的 `/argofusion-sub` 与 `/argofusion-sub-base64` 入口继续可用。
 
 网页自动适配订阅 QR 由 `generate_nodes()` 生成，并通过订阅面板的 `/你的UUID/auto-qr.svg` 资源展示；终端仅输出这一张自动适配 QR，不为明文节点或其他独立配置重复生成二维码。
 
@@ -273,7 +277,7 @@ Clash/Mihomo 的三种 WS 节点均显式 `udp: true`，并统一输出 Chrome �
 - `/etc/argofusion` 中的项目核心、配置、订阅和项目备份；
 - `argofusion-core.service`、`argofusion-tunnel.service` 以及确认属于本项目的旧服务；
 - `/etc/nginx/conf.d/argofusion.conf`、项目旧 Nginx 配置、`/usr/local/bin/af`；
-- `/etc/argofusion/nodes.txt`、旧版 `/root` 节点文件、项目迁移链接和兼容节点文件。
+- `/etc/argofusion/data/nodes.txt`、旧版 `/root` 节点文件、项目迁移链接和兼容节点文件。
 
 私有 `/etc/argofusion/bin/cloudflared`（Argo）、`/etc/argofusion/bin/sing-box` 和 `/etc/argofusion/bin/xray` 一定随项目删除。卸载完成后脚本立即退出，不会重新显示管理面板。
 

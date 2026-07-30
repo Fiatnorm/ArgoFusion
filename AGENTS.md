@@ -18,10 +18,12 @@
 - `/etc/argofusion/bin/sing-box`
 - `/etc/argofusion/bin/xray`
 - `/etc/argofusion/bin/cloudflared`
-- `/etc/argofusion/argofusion.env`
-- `/etc/argofusion/nodes.conf`
-- `/etc/argofusion/nodes.txt`
-- `/etc/argofusion/subscription.*`
+- `/etc/argofusion/config/argofusion.env`
+- `/etc/argofusion/config/nodes.conf`
+- `/etc/argofusion/config/sing-box.json`
+- `/etc/argofusion/config/xray.json`
+- `/etc/argofusion/data/nodes.txt`
+- `/etc/argofusion/subscriptions/subscription.*`
 - `/etc/argofusion/backup/`
 - `/etc/nginx/conf.d/argofusion.conf`
 - `/etc/systemd/system/argofusion-core.service`
@@ -30,9 +32,9 @@
 
 ## 配置与数据格式
 
-`/etc/argofusion/argofusion.env` 由脚本生成并通过 Bash `source` 读取，保存 UUID、Argo 域名、优选入口、Token、回源端口、WARP 配置和当前 `CORE` 选择。必须使用安全转义、`600` 权限和同目录临时文件原子替换；不得把未经验证的用户输入直接拼入该文件或 systemd unit。
+`/etc/argofusion/config/argofusion.env` 由脚本生成并通过 Bash `source` 读取，保存 UUID、Argo 域名、优选入口、Token、回源端口、WARP 配置和当前 `CORE` 选择。必须使用安全转义、`600` 权限和同目录临时文件原子替换；不得把未经验证的用户输入直接拼入该文件或 systemd unit。
 
-`/etc/argofusion/nodes.conf` 每行格式为：
+`/etc/argofusion/config/nodes.conf` 每行格式为：
 
 ```text
 标签|协议|WS路径|本地端口|SOCKS5
@@ -105,11 +107,11 @@
 - `af -n` 必须输出当前全部订阅链接、唯一一张自动适配订阅 QR 和明文节点；不得为其他订阅或单个节点重复输出 QR。自动适配订阅 QR 同时显示在网页订阅面板中，并作为单独的 `/auto-qr.svg` 订阅面板资源提供。
 - 节点连接地址使用优选入口，WebSocket Host 与 TLS SNI 使用 Argo 域名。
 - 修改 Token 或优选入口后，应重新生成节点并执行健康检查。
-- 健康检查必须测试 `/etc/argofusion/nodes.conf` 中的全部 WS 路径，默认包括 `/argo-vl`、`/argo-vm`、`/argo-tr`。
+- 健康检查必须测试 `/etc/argofusion/config/nodes.conf` 中的全部 WS 路径，默认包括 `/argo-vl`、`/argo-vm`、`/argo-tr`。
 - `af -c` 必须集中管理 Token、Argo 域名、优选入口、本地端口、UUID、动态节点、节点 SOCKS5 出站和 WARP 目标网址。
 - WARP 域名规则必须位于节点 SOCKS5 规则之前，保持 `目标网址 WARP → 节点 SOCKS5 → direct` 的优先级。
 - `af -x` 必须检查配置、Token、服务、动态端口、全部公网 WS 路径、核心版本、WARP（启用时）和最近日志。
-- `af -k/-l` 必须校验 `/etc/argofusion/managed`；只备份和恢复 `/etc/argofusion/nodes.conf` 节点配置，恢复失败必须自动回滚，不得用旧归档覆盖当前脚本、核心或项目目录。
+- `af -k/-l` 必须校验 `/etc/argofusion/managed`；只备份和恢复 `/etc/argofusion/config/nodes.conf` 节点配置，恢复失败必须自动回滚，不得用旧归档覆盖当前脚本、核心或项目目录。
 - 终端配色必须在非 TTY、`TERM=dumb` 或 `NO_COLOR` 环境自动关闭，不得向日志和管道写入 ANSI 控制符。
 - 状态诊断保持简洁，并包含公网 IP、脚本/核心版本、内存、systemd 状态、监听端口和最近错误。
 - 普通启停、查看节点、修改配置和卸载不得执行 `git pull` 或重新下载仓库脚本。
@@ -157,8 +159,8 @@ git diff --check
 
 ```bash
 nginx -t
-# Sing-box: /etc/argofusion/bin/sing-box check -c /etc/argofusion/sing-box.json
-# Xray: /etc/argofusion/bin/xray run -test -c /etc/argofusion/xray.json
+# Sing-box: /etc/argofusion/bin/sing-box check -c /etc/argofusion/config/sing-box.json
+# Xray: /etc/argofusion/bin/xray run -test -c /etc/argofusion/config/xray.json
 systemctl is-active nginx argofusion-core argofusion-tunnel
 ss -lnt
 journalctl -u argofusion-core -u argofusion-tunnel -n 100 --no-pager
