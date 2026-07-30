@@ -128,12 +128,17 @@
 - 配置事务的快照必须覆盖环境、节点、运行配置、服务文件和全部派生订阅文件；生成或服务验证失败时必须恢复文件并重新载入环境变量。
 - `validate_environment()` 是生成 Sing-box/Xray、Nginx 和订阅文件前的共同边界；已有环境文件中的内核选择、域名、端口、UUID、Token 和 WARP 配置不得绕过校验直接写入运行文件。
 - 终端状态行显示 IPv6 优选入口时必须保留 `[地址]:端口` 形式；订阅 URL 按 UI 设计稿使用白色下划线，不输出额外逐条分隔线。
+- `TERMINAL_UI_DESIGN.md` 是终端输出的视觉合同；更新终端 UI 时必须同步脚本、该设计稿和 README。当前基准采用 ArgoFusion 斜体字标、64 列分隔线、ANSI `97` 亮白正文、`◆ / ▸ / ✓ / ! / ✗ / • / ›` 图标语义，以及 `main/back/cancel/none` 四种页面提示模式。
+- 主面板服务名称使用“Argo Tunnel”和“代理核心”；只读页不显示 `0` 操作提示，普通返回静默，取消配置明确提示但不得写入半成品。节点表固定使用 14/7/18/5/12 显示宽度，并且 SOCKS5 只能展示 `direct`、`SOCKS5` 或主机端口，绝不输出用户名或密码。
+- `af -x` 必须诊断 `config`、`data` 的 `700` 与 `subscriptions` 的 `755`；健康时汇总最近日志，出现 ERROR 或诊断失败时才展开相关日志。
 - 不要修改用户已有的无关文件或清理未跟踪的 `sba/` 对照树。
 - 未在真实 VPS 上验证时，不得宣称 systemd、Nginx、Cloudflare 或公网 WS 已端到端通过。
 
 ## 版本与发布
 
 Git 远端可能同时包含原版 SBA 和本项目仓库。发布前必须执行 `git remote -v`，确认目标为 `https://github.com/Fiatnorm/ArgoFusion.git`，不得把本项目改动推送到 `fscarmen/sba`。
+
+向测试分支 `codex/test-directory-layout-v2.14.3` 推送前，必须为该次推送递增并统一 `argofusion.sh` 的 `VERSION`、README 版本记录、终端设计稿适用版本和 `argofusion.sh.sha256`；不得把未标记版本的改动推送到该测试分支，便于逐次核算。
 
 发布范围默认只包含：
 

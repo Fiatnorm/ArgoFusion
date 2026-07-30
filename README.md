@@ -1,4 +1,4 @@
-# ArgoFusion v2.14.5
+# ArgoFusion v2.14.7
 
 面向固定 Argo Token 隧道的中文轻量安装脚本，提供：
 
@@ -6,7 +6,7 @@
 - VMess + WS + TLS：`/argo-vm`
 - Trojan + WS + TLS：`/argo-tr`
 - 安装及 `af -c` 均可切换 Sing-box / Xray 内核，三种 WS 节点、订阅与 Argo 接口保持一致
-- 明文节点、终端及网页自动适配订阅 QR、原始订阅与 Base64 通用订阅
+- 原始订阅、Base64 通用订阅、Clash/Mihomo、Clash Provider、sing-box，以及终端和网页自动适配订阅 QR
 
 TLS 由 Cloudflare 边缘终止；VPS 本机 Nginx 与所选代理内核仅监听回环地址。固定隧道必须在 Cloudflare Zero Trust 添加 Public Hostname，Service 指向 `http://localhost:3010`。Public Hostname 域名必须由安装者输入；Cloudflare 优选入口默认使用 `bestcf.cdn.fiatnorm.us.kg:443`，也可在安装或配置时修改。
 
@@ -45,6 +45,10 @@ sudo ./argofusion.sh -i
 从 Argo-Singbox 升级时，脚本仅在 `/etc/asb/managed` 所有权标记有效且 `/etc/argofusion` 不存在时，将旧目录迁移为 `/etc/argofusion`，把 `asb.env` 与 `argo-singbox.sh` 分别改名为 `argofusion.env` 与 `argofusion.sh`，并临时保留兼容链接。新服务验证通过后才移除属于本项目的旧 `asb-*` 服务和兼容链接；失败则恢复旧服务。两个真实目录同时存在或旧目录没有所有权标记时会停止并要求人工核对。
 
 迁移会先停止旧服务并等待节点端口释放，再启动新服务；若新服务启动失败，会先停用新服务再恢复旧服务，避免两套 sing-box 同时抢占节点端口。重新执行 v2.8.2 安装可修复旧版迁移失败后形成的新旧服务端口冲突。
+
+v2.14.7 根据 `ArgoFusion_TERMINAL_UI_DESIGN_v2.14.5.md` 统一终端输出：首页改用 ArgoFusion 斜体字标与亮白正文；页面提示按主面板、返回、取消和只读场景显示；主面板状态统一为 Argo Tunnel 与代理核心；节点表采用 64 列布局并隐藏 SOCKS5 凭据；诊断检查 `config/data` 的 `700` 与 `subscriptions` 的 `755`，健康时仅汇总最近日志。
+
+v2.14.6 合并重复的 Shadowrocket 订阅：Shadowrocket 与 V2rayN、NekoBox 共用 `/base64` 通用订阅，停止生成和暴露独立 `/shadowrocket` 文件与 URL。`/raw` 统一命名为“原始订阅”；网页订阅中心重排为推荐自动适配入口与指定格式订阅两层，并改善窄屏布局。
 
 v2.14.5 修复重整目录后的订阅 403：`/etc/argofusion/subscriptions/` 由 Nginx 通过 `alias` 对外提供，目录权限改为 `755`，使 Nginx 工作进程可以读取订阅、二维码和自动适配文件；`config/`、`data/` 仍保持 `700` 私有权限。重新安装或更新安装会自动修正已有目录权限。
 
@@ -235,7 +239,7 @@ https://chatgpt.com,api.openai.com,example.com
 
 WARP 只覆盖匹配的网址，不会替换其他节点的 SOCKS5 配置。`af -x` 会检查 `warp-svc`、本地代理端口，并通过 WARP 访问第一个目标域名。WARP 不提供匿名保证，也不保证指定国家或地区的落地 IP。
 
-终端输出使用高亮配色：亮紫色标识品牌和输入提示，亮蓝/亮青区分概览、分区与键名，亮黄色标识菜单序号和停用状态，白色承载主要内容，绿/黄/红分别表示成功、警告和错误。订阅链接使用白色下划线。菜单、诊断、节点订阅与表格统一采用内容块布局：区块之间保留一行，区块内部保持紧凑。分隔线统一为 64 列 ASCII `-`，表格与菜单按终端显示宽度对齐；IPv6 优选入口在状态行中显示为 `[地址]:端口`；重定向输出、`TERM=dumb` 或设置 `NO_COLOR=1` 时自动关闭全部颜色和文本装饰。
+终端输出使用高亮配色：亮蓝字标、亮紫页面标题和输入提示，亮蓝/亮青键名与分区、亮黄色菜单序号和停用状态，亮白承载主要内容，绿/黄/红分别表示成功、警告和错误。订阅链接使用亮白下划线。主面板、可返回菜单、可取消表单和只读页面分别显示对应的 `0` 提示；普通返回不额外输出提示。菜单、诊断、节点订阅与表格统一采用内容块布局：区块之间保留一行，区块内部保持紧凑。分隔线统一为 64 列 ASCII `-`，节点表按 14/7/18/5/12 显示宽度对齐且不显示 SOCKS5 用户名和密码；IPv6 优选入口在状态行中显示为 `[地址]:端口`；重定向输出、`TERM=dumb` 或设置 `NO_COLOR=1` 时自动关闭全部颜色和文本装饰。
 
 ## 诊断、备份与恢复
 
@@ -251,7 +255,7 @@ WARP 只覆盖匹配的网址，不会替换其他节点的 SOCKS5 配置。`af 
 
 ## 节点、订阅和检查
 
-`af -n` 输出配置文件索引、自动适配订阅 QR 和全部原始节点链接。浏览器访问 `https://你的域名/你的UUID/` 可进入经典白底蓝字订阅面板，扫描同一自动适配订阅 QR，或打开不同客户端配置：
+`af -n` 输出配置文件索引、自动适配订阅 QR 和全部原始节点链接。浏览器访问 `https://你的域名/你的UUID/` 可进入白底蓝字订阅中心，扫描同一自动适配订阅 QR，或打开不同客户端配置：
 
 ```text
 https://你的域名/你的UUID/auto
@@ -260,10 +264,9 @@ https://你的域名/你的UUID/base64
 https://你的域名/你的UUID/clash
 https://你的域名/你的UUID/proxies
 https://你的域名/你的UUID/sing-box
-https://你的域名/你的UUID/shadowrocket
 ```
 
-`/你的UUID` 会跳转到文件索引；索引 HTML 由 Nginx 直接返回，避免目录 URL 使用文件 `alias` 导致 500。`/auto` 根据 User-Agent 为 Clash/Mihomo、sing-box 和 Shadowrocket 返回对应格式，其他客户端返回 Base64 通用订阅。`/raw` 以及 `/etc/argofusion/data/nodes.txt` 保留逐行明文 `vless://`、`vmess://`、`trojan://` 节点协议。旧的 `/argofusion-sub` 与 `/argofusion-sub-base64` 入口继续可用。
+`/你的UUID` 会跳转到文件索引；索引 HTML 由 Nginx 直接返回，避免目录 URL 使用文件 `alias` 导致 500。`/auto` 根据 User-Agent 为 Clash/Mihomo 与 sing-box 返回对应格式，其他客户端（包括 Shadowrocket）返回 Base64 通用订阅。`/raw`（原始订阅）以及 `/etc/argofusion/data/nodes.txt` 保留逐行明文 `vless://`、`vmess://`、`trojan://` 节点协议。旧的 `/argofusion-sub` 与 `/argofusion-sub-base64` 入口继续可用。
 
 网页自动适配订阅 QR 由 `generate_nodes()` 生成，并通过订阅面板的 `/你的UUID/auto-qr.svg` 资源展示；终端仅输出这一张自动适配 QR，不为明文节点或其他独立配置重复生成二维码。
 
