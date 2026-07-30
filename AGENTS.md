@@ -131,6 +131,7 @@
 - `TERMINAL_UI_DESIGN.md` 是终端输出的视觉合同；更新终端 UI 时必须同步脚本、该设计稿和 README。当前基准采用 ArgoFusion 斜体字标、64 列分隔线、ANSI `97` 亮白正文、`◆ / ▸ / ✓ / ! / ✗ / • / ›` 图标语义，以及 `main/back/cancel/none` 四种页面提示模式。
 - 主面板服务名称使用“Argo Tunnel”和“代理核心”；只读页不显示 `0` 操作提示，普通返回静默，取消配置明确提示但不得写入半成品。节点表固定使用 14/7/18/5/12 显示宽度，并且 SOCKS5 只能展示 `direct`、`SOCKS5` 或主机端口，绝不输出用户名或密码。
 - `af -x` 必须诊断 `config`、`data` 的 `700` 与 `subscriptions` 的 `755`；健康时汇总最近日志，出现 ERROR 或诊断失败时才展开相关日志。
+- UUID 订阅中心仍通过精确 `return 200` 路由提供；内联 HTML 的 UTF-8 单行长度必须低于 `3500` 字节，并由 `write_nginx_config()` 在 `nginx -t` 前强制检查，避免 Nginx 报出 `too long parameter`。
 - 不要修改用户已有的无关文件或清理未跟踪的 `sba/` 对照树。
 - 未在真实 VPS 上验证时，不得宣称 systemd、Nginx、Cloudflare 或公网 WS 已端到端通过。
 

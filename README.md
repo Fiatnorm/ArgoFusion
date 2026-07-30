@@ -1,4 +1,4 @@
-# ArgoFusion v2.14.8
+# ArgoFusion v2.14.9
 
 面向固定 Argo Token 隧道的中文轻量安装脚本，提供：
 
@@ -45,6 +45,8 @@ sudo ./argofusion.sh -i
 从 Argo-Singbox 升级时，脚本仅在 `/etc/asb/managed` 所有权标记有效且 `/etc/argofusion` 不存在时，将旧目录迁移为 `/etc/argofusion`，把 `asb.env` 与 `argo-singbox.sh` 分别改名为 `argofusion.env` 与 `argofusion.sh`，并临时保留兼容链接。新服务验证通过后才移除属于本项目的旧 `asb-*` 服务和兼容链接；失败则恢复旧服务。两个真实目录同时存在或旧目录没有所有权标记时会停止并要求人工核对。
 
 迁移会先停止旧服务并等待节点端口释放，再启动新服务；若新服务启动失败，会先停用新服务再恢复旧服务，避免两套 sing-box 同时抢占节点端口。重新执行 v2.8.2 安装可修复旧版迁移失败后形成的新旧服务端口冲突。
+
+v2.14.9 修复订阅中心导致 Nginx 配置校验失败的问题：保留 UUID 精确 `return 200` 路由，但将内联页面压缩到 Nginx 单参数长度限制内，不再触发“too long parameter / missing terminating quote”。
 
 v2.14.8 将持续测试入口固定为 `codex/argofusion-test`，不再使用名称中固化旧版本的测试分支；每次推送该分支均同步递增脚本、README、设计稿与校验哈希版本，便于核算。
 
