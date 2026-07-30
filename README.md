@@ -23,7 +23,7 @@ chmod +x argofusion.sh
 sudo ./argofusion.sh -i
 ```
 
-安装时输入 Argo Token、Public Hostname，并以一行 `域名/IP:端口` 的形式输入 Cloudflare 优选入口，默认值为 `bestcf.cdn.fiatnorm.us.kg:443`。IPv6 使用 `[2001:db8::1]:443`。最后选择 `1` 使用默认 Sing-box，或选择 `2` 使用 Xray；安装后可在 `af -c` 的“切换代理核心”随时切换，原有节点、订阅地址和 Argo 配置不变。
+安装时输入 Argo Token、Public Hostname，并以一行 `域名/IP:端口` 的形式输入 Cloudflare 优选入口，默认值为 `bestcf.cdn.fiatnorm.us.kg:443`。IPv6 使用 `[2001:db8::1]:443`。最后选择 `1` 使用默认 Sing-box，或选择 `2` 使用 Xray；安装后可在 `af` 主面板的“切换代理核心”随时切换，原有节点、订阅地址和 Argo 配置不变。
 
 核心安装在项目私有目录：
 
@@ -47,6 +47,8 @@ sudo ./argofusion.sh -i
 迁移会先停止旧服务并等待节点端口释放，再启动新服务；若新服务启动失败，会先停用新服务再恢复旧服务，避免两套 sing-box 同时抢占节点端口。重新执行 v2.8.2 安装可修复旧版迁移失败后形成的新旧服务端口冲突。
 
 v2.14.3 重整 VPS 项目目录：环境、节点定义与两套核心 JSON 迁入 `/etc/argofusion/config/`，明文节点迁入 `/etc/argofusion/data/`，各类订阅和自动适配 QR 迁入 `/etc/argofusion/subscriptions/`。升级安装会先核对同名文件内容，拒绝覆盖冲突或异常文件类型，再迁移并重建 Nginx、核心服务与订阅；外部订阅 URL 保持不变。
+
+v2.14.4 优化终端输出层级与排版：页面标题下统一说明 `0` 的返回/退出规则，移除子页面和确认提示中的重复文字；主面板将“切换代理核心”提升为独立日常操作，集中配置只保留配置、节点与 WARP 分流。同步将终端设计稿、菜单和说明统一为 ArgoFusion 名称与 `af` 命令。
 
 v2.14.2 修复 GitHub Release 压缩 JSON 的 SHA256 解析。Cloudflared、Sing-box 与 Xray 仍必须通过官方 Release 发布的 SHA256 校验；缺少或不匹配时继续拒绝安装。
 
@@ -160,7 +162,7 @@ sudo ./argofusion.sh -i
 | `sudo af -n` | 显示全部节点、所有订阅地址及一张自动适配订阅 QR |
 | `sudo af -a` | 开启或关闭 Argo/cloudflared 服务 |
 | `sudo af -s` | 开启或关闭当前选择的 Sing-box / Xray 服务 |
-| `sudo af -c` | 修改 Token、域名、优选入口、端口、UUID、节点、SOCKS5、WARP 域名和代理内核 |
+| `sudo af -c` | 修改 Token、域名、优选入口、端口、UUID、节点、SOCKS5 与 WARP 域名 |
 | `sudo af -r` | 重启 Nginx、当前代理内核和 Argo 服务 |
 | `sudo af -x` | 执行完整诊断、WS 检查并显示最近日志 |
 | `sudo af -v` | 比较版本并更新 Argo/cloudflared 与当前选择的代理内核 |
@@ -177,18 +179,19 @@ sudo ./argofusion.sh -i
 ## 菜单
 
 ```text
-1. 查看节点信息 (af -n)
+1. 查看节点与订阅 (af -n)
 2. 开启/关闭 Argo (af -a)
 3. 开启/关闭当前代理内核 (af -s)
-4. 集中配置 (af -c)
-5. 重启全部服务 (af -r)
-6. 完整诊断 (af -x)
-7. 安装 / 更新 ArgoFusion (af -i)
-8. 更新 Argo / 当前代理内核 (af -v)
-9. 备份节点配置 (af -k)
-10. 恢复节点配置 (af -l)
-11. 第三方 BBR / DD 工具 (af -b)
-12. 卸载 ArgoFusion (af -u)
+4. 切换代理核心 (当前 Sing-box / Xray)
+5. 集中配置 (af -c)
+6. 重启全部服务 (af -r)
+7. 完整诊断 (af -x)
+8. 安装 / 更新 ArgoFusion (af -i)
+9. 更新 Argo / 当前代理内核 (af -v)
+10. 备份节点配置 (af -k)
+11. 恢复节点配置 (af -l)
+12. 第三方 BBR / DD 工具 (af -b)
+13. 卸载 ArgoFusion (af -u)
 0. 退出
 ```
 
@@ -198,7 +201,7 @@ sudo ./argofusion.sh -i
 
 ### 切换 Sing-box / Xray
 
-在 `af -c` 选择“切换代理核心”，输入 `1` 为 Sing-box、`2` 为 Xray。两种核心共用 `/etc/argofusion/config/argofusion.env`、`/etc/argofusion/config/nodes.conf`、Nginx、Argo Tunnel 和订阅文件；`/etc/argofusion/config/sing-box.json` 与 `/etc/argofusion/config/xray.json` 始终分别保留。切换会先检查目标二进制，必要时从官方 Release 下载、校验并原子安装，然后同时重建和校验两套 JSON，最后重启同一个 `argofusion-core.service`。失败会恢复切换前的环境、运行配置、服务文件和订阅文件。
+在 `af` 主面板选择“切换代理核心”，输入 `1` 为 Sing-box、`2` 为 Xray。两种核心共用 `/etc/argofusion/config/argofusion.env`、`/etc/argofusion/config/nodes.conf`、Nginx、Argo Tunnel 和订阅文件；`/etc/argofusion/config/sing-box.json` 与 `/etc/argofusion/config/xray.json` 始终分别保留。切换会先检查目标二进制，必要时从官方 Release 下载、校验并原子安装，然后同时重建和校验两套 JSON，最后重启同一个 `argofusion-core.service`。失败会恢复切换前的环境、运行配置、服务文件和订阅文件。
 
 添加节点时可留空使用直连，也可输入 SOCKS5 出站：
 
@@ -208,7 +211,7 @@ sudo ./argofusion.sh -i
 
 路由按节点 inbound tag 匹配，因此同一种协议的不同 WS 路径可以使用不同出口。SOCKS5 地址、端口、用户名和密码只写入权限为 `600` 的项目配置；节点分享链接不包含出站凭据。配置变更会重建所有已安装内核的配置并逐一检查、执行 `nginx -t`、重启服务和状态验证，失败时恢复修改前文件。
 
-集中配置中的基础项、节点操作和 WARP 子菜单均可输入 `0` 返回上级界面；返回时不会写入半成品配置。
+所有页面标题下都会统一提示：输入 `0` 返回上级，主面板输入 `0` 退出。基础项、节点操作和 WARP 子菜单均保留该行为，返回时不会写入半成品配置。
 
 ### 按网址优先使用 WARP
 

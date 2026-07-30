@@ -1,6 +1,6 @@
-# Argo-Singbox 完整终端输出 UI 设计稿
+# ArgoFusion 完整终端输出 UI 设计稿
 
-> 适用版本：Argo-Singbox v2.12.2
+> 适用版本：ArgoFusion v2.14.4
 >
 > 设计基础：沿用现有 ASCII 品牌字标、`◆ / ▸ / ✓ / ! / ✗ / • / ›` 视觉语言与当前项目交互逻辑，只进行轻量统一和排版优化。
 >
@@ -20,13 +20,13 @@
 - 分隔线后的 `▸` 一级小标题紧接显示，不插入空行；该规则适用于所有操作页面。
 - 所有用户输入统一使用洋红色 `›`。
 - 所有成功、警告、错误和普通信息使用固定图标，不混用。
-- 所有可返回的操作统一仅接受 `0`；菜单和提示中不显示其他返回快捷输入。
+- 所有页面标题下统一显示“输入 `0` 返回上级；主面板输入 `0` 退出”；所有可返回操作仅接受 `0`，无需在每一条输入提示中重复说明。
 
 ### 1.2 颜色配置
 
 | 语义 | 终端颜色 | ANSI | 用途 |
 |---|---|---:|---|
-| 品牌 ASCII | 亮蓝 | `94` | 顶部 Argo-Singbox 字标 |
+| 品牌 ASCII | 亮蓝 | `94` | 顶部 ArgoFusion 字标 |
 | 主标题 `◆` | 亮洋红 | `95` + Bold | 控制中心、完整诊断、集中配置等 |
 | 一级分区 `▸` | 亮青 | `96` + Bold | 日常管理、维护工具、运行检查等 |
 | 键名 | 亮蓝 | `94` | Argo 服务、优选入口、组件版本等 |
@@ -34,10 +34,11 @@
 | IP 地址 | 亮紫 | `95` | 优选入口中的 IP 与本机公网 IP |
 | Argo 回源地址 | 白色 | `37` | `127.0.0.1:端口` |
 | 链接 | 白色 + 下划线 | `37;4` | 所有订阅 URL，仅 URL 文本带下划线 |
-| 菜单编号 | 亮黄 | `93` | `0`～`12` |
+| 菜单编号 | 亮黄 | `93` | `0`～`13` |
 | 菜单文字 | 白色 | `37` | 菜单项目名称 |
-| 快捷命令 | 亮青 | `96` | `[asb -n]` 等 |
+| 快捷命令 | 亮青 | `96` | `[af -n]` 等 |
 | 输入提示 `›` | 亮洋红 | `95` + Bold | 所有交互输入 |
+| 全局操作提示 | 亮青 + 白 + 亮黄 | `96` / `37` / `93` | 返回/退出说明；数字 `0` 使用亮黄 |
 | 成功 `✓` | 亮绿 | `92` | 已开启、验证通过、更新成功 |
 | 警告 `!` | 亮黄 | `93` | 已关闭、已取消、探测超时、非致命异常 |
 | 错误 `✗` | 亮红 | `91` | 校验失败、服务异常、回滚 |
@@ -67,7 +68,7 @@
 分隔线：            64 个半角 -
 ```
 
-> 重点：`系统环境`、`Argo-Singbox` 两行的值必须从同一列开始；状态概览、订阅索引和菜单快捷命令也必须严格对齐。
+> 重点：`系统环境`、`ArgoFusion` 两行的值必须从同一列开始；状态概览、订阅索引和菜单快捷命令也必须严格对齐。
 
 ---
 
@@ -83,36 +84,38 @@
 /_/  |_/_/   \__, /\____//____/_/_/ /_/\__, /_.___/\____/_/|_|
             /____/                    /____/
 
-Argo-Singbox  v2.12.2 · Argo Tunnel · Sing-box Core · WSS Proxy
+ArgoFusion  v2.14.4 · Argo Tunnel · Sing-box / Xray · WSS Proxy
 系统环境      Debian GNU/Linux 13 (trixie) · amd64 · IP 203.0.113.10
 ----------------------------------------------------------------
 运行概览
 Argo 服务      运行中
 Sing-box 服务  运行中
-Argo 域名      asb.example.com
+Argo 域名      argofusion.example.com
 优选入口       198.51.100.10:443
 Argo 回源      127.0.0.1:3010
-组件版本       脚本 v2.12.2 · Sing-box 1.13.0-rc.4 · Cloudflared 2026.7.0
+组件版本       脚本 v2.14.4 · Sing-box 1.13.0-rc.4 · Cloudflared 2026.7.0
 WARP 分流      未启用
 ----------------------------------------------------------------
 
-◆ Argo-Singbox · 控制中心
+◆ ArgoFusion · 控制中心
+  操作提示：输入 0 返回上级；主面板输入 0 退出。
 ----------------------------------------------------------------
 ▸ 日常管理
-   1  查看节点信息                       [asb -n]
-   2  开启/关闭 Argo                     [asb -a]
-   3  开启/关闭 Sing-box                 [asb -s]
-   4  集中配置                           [asb -c]
-   5  重启全部服务                       [asb -r]
-   6  完整诊断                           [asb -x]
+   1  查看节点与订阅                     [af -n]
+   2  开启/关闭 Argo                     [af -a]
+   3  开启/关闭当前代理核心              [af -s]
+   4  切换代理核心                       [当前 Sing-box / Xray]
+   5  集中配置                           [af -c]
+   6  重启全部服务                       [af -r]
+   7  完整诊断                           [af -x]
 
 ▸ 维护工具
-   7  安装 / 更新 Argo-Singbox           [asb -i]
-   8  更新 Argo / Sing-box 核心          [asb -v]
-   9  备份节点配置                       [asb -k]
-  10  恢复节点配置                       [asb -l]
-  11  第三方 BBR / DD 工具               [asb -b]
-  12  卸载 Argo-Singbox                  [asb -u]
+   8  安装 / 更新 ArgoFusion             [af -i]
+   9  更新 Argo / 当前代理核心           [af -v]
+  10  备份节点配置                       [af -k]
+  11  恢复节点配置                       [af -l]
+  12  第三方 BBR / DD 工具               [af -b]
+  13  卸载 ArgoFusion                    [af -u]
    0  退出
 ----------------------------------------------------------------
 › 请选择：
@@ -121,9 +124,9 @@ WARP 分流      未启用
 #### 颜色
 
 - ASCII 字标：亮蓝。
-- `Argo-Singbox`：亮洋红加粗。
-- `v2.12.2`：亮黄。
-- `Argo Tunnel · Sing-box Core · WSS Proxy`：Dim 白。
+- `ArgoFusion`：亮洋红加粗。
+- `v2.14.4`：亮黄。
+- `Argo Tunnel · Sing-box / Xray · WSS Proxy`：Dim 白。
 - `系统环境`：亮青；系统内容：白色。
 - `运行概览`：亮蓝加粗，用于区别下方亮青色 `▸` 分区。
 - 运行中的服务：亮绿。
@@ -135,10 +138,10 @@ WARP 分流      未启用
 运行概览
 Argo 服务      已停止
 Sing-box 服务  已停止
-Argo 域名      asb.example.com
+Argo 域名      argofusion.example.com
 优选入口       198.51.100.10:443
 Argo 回源      127.0.0.1:3010
-组件版本       脚本 v2.12.2 · Sing-box 1.13.0-rc.4 · Cloudflared 2026.7.0
+组件版本       脚本 v2.14.4 · Sing-box 1.13.0-rc.4 · Cloudflared 2026.7.0
 WARP 分流      未启用
 ```
 
@@ -163,7 +166,7 @@ WARP 分流      已启用 · 代理异常
 ### 2.5 无效菜单输入
 
 ```text
-! 请输入 0 到 12。
+! 请输入 0 到 13。
 ```
 
 颜色：亮黄。
@@ -173,17 +176,18 @@ WARP 分流      已启用 · 代理异常
 ## 3. 节点与订阅
 
 ```text
-◆ Argo-Singbox · 节点与订阅
+◆ ArgoFusion · 节点与订阅
+  操作提示：输入 0 返回上级；主面板输入 0 退出。
 ----------------------------------------------------------------
 ▸ 配置文件索引
-文件索引        https://asb.example.com/00000000-0000-4000-8000-000000000000/
-自动适配        https://asb.example.com/00000000-0000-4000-8000-000000000000/auto
-原始明文        https://asb.example.com/00000000-0000-4000-8000-000000000000/raw
-Base64          https://asb.example.com/00000000-0000-4000-8000-000000000000/base64
-Clash           https://asb.example.com/00000000-0000-4000-8000-000000000000/clash
-Clash Provider  https://asb.example.com/00000000-0000-4000-8000-000000000000/proxies
-sing-box        https://asb.example.com/00000000-0000-4000-8000-000000000000/sing-box
-Shadowrocket    https://asb.example.com/00000000-0000-4000-8000-000000000000/shadowrocket
+文件索引        https://argofusion.example.com/00000000-0000-4000-8000-000000000000/
+自动适配        https://argofusion.example.com/00000000-0000-4000-8000-000000000000/auto
+原始明文        https://argofusion.example.com/00000000-0000-4000-8000-000000000000/raw
+Base64          https://argofusion.example.com/00000000-0000-4000-8000-000000000000/base64
+Clash           https://argofusion.example.com/00000000-0000-4000-8000-000000000000/clash
+Clash Provider  https://argofusion.example.com/00000000-0000-4000-8000-000000000000/proxies
+sing-box        https://argofusion.example.com/00000000-0000-4000-8000-000000000000/sing-box
+Shadowrocket    https://argofusion.example.com/00000000-0000-4000-8000-000000000000/shadowrocket
 
 ▸ 自动适配订阅 QR
 █████████████████████████████████████████████
@@ -273,7 +277,8 @@ vmess://<example-vmess-node>
 ### 5.1 主菜单
 
 ```text
-◆ Argo-Singbox · 集中配置
+◆ ArgoFusion · 集中配置
+  操作提示：输入 0 返回上级；主面板输入 0 退出。
 ----------------------------------------------------------------
 基础配置
    1  Token / Argo 域名
@@ -302,15 +307,16 @@ vmess://<example-vmess-node>
 ### 5.2 修改 Token / Argo 域名
 
 ```text
-◆ Argo-Singbox · Token / Argo 域名
+◆ ArgoFusion · Token / Argo 域名
+  操作提示：输入 0 返回上级；主面板输入 0 退出。
 ----------------------------------------------------------------
 当前配置
-Argo 域名      asb.example.com
+Argo 域名      argofusion.example.com
 Token 状态     已配置
 
 ▸ 修改配置
 › 新 Token [留空保持]：
-› 新 Argo 域名 [asb.example.com]：
+› 新 Argo 域名 [argofusion.example.com]：
 
 • 正在校验配置并重启服务...
 ✓ 配置已校验并生效。
@@ -321,7 +327,8 @@ Token 状态     已配置
 ### 5.3 修改 Cloudflare 优选入口
 
 ```text
-◆ Argo-Singbox · Cloudflare 优选入口
+◆ ArgoFusion · Cloudflare 优选入口
+  操作提示：输入 0 返回上级；主面板输入 0 退出。
 ----------------------------------------------------------------
 当前入口       198.51.100.10:443
 
@@ -347,7 +354,8 @@ IPv6 输入示例：
 ### 5.4 修改 Argo Tunnel 回源端口
 
 ```text
-◆ Argo-Singbox · Argo Tunnel 回源端口
+◆ ArgoFusion · Argo Tunnel 回源端口
+  操作提示：输入 0 返回上级；主面板输入 0 退出。
 ----------------------------------------------------------------
 当前回源       127.0.0.1:3010
 节点数量       4
@@ -365,7 +373,8 @@ IPv6 输入示例：
 ### 5.5 修改全局 UUID
 
 ```text
-◆ Argo-Singbox · 全局 UUID
+◆ ArgoFusion · 全局 UUID
+  操作提示：输入 0 返回上级；主面板输入 0 退出。
 ----------------------------------------------------------------
 当前 UUID      00000000-0000-4000-8000-000000000000
 
@@ -383,7 +392,8 @@ IPv6 输入示例：
 ### 6.1 查看节点
 
 ```text
-◆ Argo-Singbox · 节点配置
+◆ ArgoFusion · 节点配置
+  操作提示：输入 0 返回上级；主面板输入 0 退出。
 ----------------------------------------------------------------
 标签              协议      WS 路径               端口    出站
 ----------------  --------  --------------------  ------  ----------------
@@ -407,7 +417,8 @@ Argo-Vm           vmess     /argo-vm              3014    direct
 ### 6.2 添加节点
 
 ```text
-◆ Argo-Singbox · 添加节点
+◆ ArgoFusion · 添加节点
+  操作提示：输入 0 返回上级；主面板输入 0 退出。
 ----------------------------------------------------------------
 › 节点标签（字母/数字/_/-）：Argo-Vl2
 › 协议（vless/vmess/trojan）：vless
@@ -435,7 +446,8 @@ Argo-Vm           vmess     /argo-vm              3014    direct
 ### 6.3 修改节点
 
 ```text
-◆ Argo-Singbox · 修改节点
+◆ ArgoFusion · 修改节点
+  操作提示：输入 0 返回上级；主面板输入 0 退出。
 ----------------------------------------------------------------
 标签              协议      WS 路径               端口    出站
 ----------------  --------  --------------------  ------  ----------------
@@ -462,7 +474,8 @@ Argo-Vm           vmess     /argo-vm              3014    direct
 ### 6.4 删除节点
 
 ```text
-◆ Argo-Singbox · 删除节点
+◆ ArgoFusion · 删除节点
+  操作提示：输入 0 返回上级；主面板输入 0 退出。
 ----------------------------------------------------------------
 标签              协议      WS 路径               端口    出站
 ----------------  --------  --------------------  ------  ----------------
@@ -491,7 +504,8 @@ Argo-Vm           vmess     /argo-vm              3014    direct
 ### 7.1 WARP 子菜单
 
 ```text
-◆ Argo-Singbox · WARP 网址分流
+◆ ArgoFusion · WARP 网址分流
+  操作提示：输入 0 返回上级；主面板输入 0 退出。
 ----------------------------------------------------------------
 当前状态       未启用
 代理端口       40000
@@ -510,7 +524,8 @@ Argo-Vm           vmess     /argo-vm              3014    direct
 ### 7.2 启用 WARP
 
 ```text
-◆ Argo-Singbox · 启用 WARP 分流
+◆ ArgoFusion · 启用 WARP 分流
+  操作提示：输入 0 返回上级；主面板输入 0 退出。
 ----------------------------------------------------------------
 ! 未安装官方 Cloudflare WARP 客户端。
 › 立即自动安装？[Y/n]：Y
@@ -539,7 +554,8 @@ Argo-Vm           vmess     /argo-vm              3014    direct
 ### 7.3 添加域名
 
 ```text
-◆ Argo-Singbox · 添加 WARP 域名
+◆ ArgoFusion · 添加 WARP 域名
+  操作提示：输入 0 返回上级；主面板输入 0 退出。
 ----------------------------------------------------------------
 已有域名       chatgpt.com,openai.com
 › 要添加的网址/域名（可用逗号分隔）：claude.ai
@@ -550,7 +566,8 @@ Argo-Vm           vmess     /argo-vm              3014    direct
 ### 7.4 删除域名
 
 ```text
-◆ Argo-Singbox · 删除 WARP 域名
+◆ ArgoFusion · 删除 WARP 域名
+  操作提示：输入 0 返回上级；主面板输入 0 退出。
 ----------------------------------------------------------------
 已有域名       chatgpt.com,openai.com,claude.ai
 › 要删除的网址或域名：claude.ai
@@ -561,7 +578,8 @@ Argo-Vm           vmess     /argo-vm              3014    direct
 ### 7.5 停用 WARP
 
 ```text
-◆ Argo-Singbox · 停用 WARP 分流
+◆ ArgoFusion · 停用 WARP 分流
+  操作提示：输入 0 返回上级；主面板输入 0 退出。
 ----------------------------------------------------------------
 › 确认停用 WARP 网址分流？[y/N]：y
 
@@ -582,11 +600,12 @@ Argo-Vm           vmess     /argo-vm              3014    direct
 ## 8. 完整诊断
 
 ```text
-◆ Argo-Singbox · 完整诊断
+◆ ArgoFusion · 完整诊断
+  操作提示：输入 0 返回上级；主面板输入 0 退出。
 ----------------------------------------------------------------
 系统概览
 公网 IP        203.0.113.10
-脚本版本       v2.12.2
+脚本版本       v2.14.4
 内存           415/3883 MiB (11%)
 优选入口       198.51.100.10:443
 Argo 回源      127.0.0.1:3010
@@ -596,13 +615,13 @@ Argo 回源      127.0.0.1:3010
 ✓ Sing-box 配置：有效
 ✓ Nginx 配置：有效
 ✓ Token：已配置且服务文件一致
-组件版本       脚本 v2.12.2 · Sing-box 1.13.0-rc.4 · Cloudflared 2026.7.0
+组件版本       脚本 v2.14.4 · Sing-box 1.13.0-rc.4 · Cloudflared 2026.7.0
 ! WARP：未启用
 
 ▸ 运行检查
 ✓ nginx：运行正常
-✓ asb-sing-box：运行正常
-✓ asb-cloudflared：运行正常
+✓ argofusion-core：运行正常
+✓ argofusion-tunnel：运行正常
 ✓ /argo-vl：公网 WebSocket 握手正常
 ✓ /argo-vl2：公网 WebSocket 握手正常
 ✓ /argo-tr：公网 WebSocket 握手正常
@@ -648,7 +667,7 @@ Argo 回源      127.0.0.1:3010
 ### 8.3 服务异常
 
 ```text
-✗ asb-sing-box：运行失败
+✗ argofusion-core：运行失败
 ```
 
 随后输出对应 `systemctl status` 与最近日志。
@@ -658,7 +677,8 @@ Argo 回源      127.0.0.1:3010
 ## 9. 安装 / 更新入口
 
 ```text
-◆ Argo-Singbox · 安装 / 更新
+◆ ArgoFusion · 安装 / 更新
+  操作提示：输入 0 返回上级；主面板输入 0 退出。
 ----------------------------------------------------------------
 请选择安装来源
    1  使用当前 VPS 本地脚本重装          [不更新项目脚本]
@@ -688,11 +708,11 @@ Argo 回源      127.0.0.1:3010
 /_/  |_/_/   \__, /\____//____/_/_/ /_/\__, /_.___/\____/_/|_|
             /____/                    /____/
 
-Argo-Singbox  v2.12.2 · Argo Tunnel · Sing-box Core · WSS Proxy
+ArgoFusion  v2.14.4 · Argo Tunnel · Sing-box / Xray · WSS Proxy
 系统环境      Debian GNU/Linux 13 (trixie) · amd64 · IP 203.0.113.10
 ----------------------------------------------------------------
 安装 / 更新
-• 正在获取 Fiatnorm/Argo-Singbox main 的最新安装脚本...
+• 正在获取 Fiatnorm/ArgoFusion main 的最新安装脚本...
 ✓ 当前安装脚本已是 GitHub 最新版本。
 ```
 
@@ -719,7 +739,7 @@ Argo-Singbox  v2.12.2 · Argo Tunnel · Sing-box Core · WSS Proxy
 ```text
 ▸ 安装参数
 › 请输入 Argo Token（必填）：
-› 请输入 Argo 域名（必填）[asb.example.com]：
+› 请输入 Argo 域名（必填）[argofusion.example.com]：
 › 请输入 UUID [00000000-0000-4000-8000-000000000000]：
 › 请输入 Cloudflare 优选入口 域名/IP:端口 [bestcf.cdn.fiatnorm.us.kg:443]：198.51.100.10:443
 ```
@@ -766,7 +786,7 @@ Argo-Singbox  v2.12.2 · Argo Tunnel · Sing-box Core · WSS Proxy
 端口被旧项目占用：
 
 ```text
-• 已停止占用节点端口的旧项目服务：sba-sing-box.service
+• 已停止占用节点端口的旧项目服务：argofusion-core.service
 • 已停止遗留 sing-box 进程 PID 56328（端口 3011）。
 ```
 
@@ -782,20 +802,20 @@ LISTEN  0  4096  127.0.0.1:3011  0.0.0.0:*  users:(("unknown",pid=56328,fd=10))
 ```text
 ▸ 运行检查
 ✓ nginx：运行正常
-✓ asb-sing-box：运行正常
-✓ asb-cloudflared：运行正常
+✓ argofusion-core：运行正常
+✓ argofusion-tunnel：运行正常
 ✓ /argo-vl：公网 WebSocket 握手正常
 ✓ /argo-vl2：公网 WebSocket 握手正常
 ✓ /argo-tr：公网 WebSocket 握手正常
 ! /argo-vm：公网握手探测超时，未作为安装失败（请用客户端实测）
 
-✓ Argo-Singbox 安装 / 更新完成，核心链路检查通过。
+✓ ArgoFusion 安装 / 更新完成，核心链路检查通过。
 ```
 
 健康检查存在失败：
 
 ```text
-! Argo-Singbox 文件已安装，但健康检查未全部通过；请先处理上述错误再使用节点。
+! ArgoFusion 文件已安装，但健康检查未全部通过；请先处理上述错误再使用节点。
 ```
 
 ### 10.7 安装完成摘要
@@ -804,13 +824,13 @@ LISTEN  0  4096  127.0.0.1:3011  0.0.0.0:*  users:(("unknown",pid=56328,fd=10))
 ▸ 运行摘要
 Argo 服务      运行中
 Sing-box 服务  运行中
-Argo 域名      asb.example.com
+Argo 域名      argofusion.example.com
 优选入口       198.51.100.10:443
 Argo 回源      127.0.0.1:3010
-组件版本       脚本 v2.12.2 · Sing-box 1.13.0-rc.4 · Cloudflared 2026.7.0
+组件版本       脚本 v2.14.4 · Sing-box 1.13.0-rc.4 · Cloudflared 2026.7.0
 WARP 分流      未启用
-节点文件       /etc/asb/nodes.txt
-管理命令       asb
+节点文件       /etc/argofusion/nodes.txt
+管理命令       af
 
 ▸ 明文节点
 vless://<example-vless-node>
@@ -845,7 +865,8 @@ trojan://<example-trojan-node>
 ## 12. 更新 Argo / Sing-box 核心
 
 ```text
-◆ Argo-Singbox · 核心更新
+◆ ArgoFusion · 核心更新
+  操作提示：输入 0 返回上级；主面板输入 0 退出。
 ----------------------------------------------------------------
 ▸ Argo / cloudflared 核心
 当前版本       2026.6.1
@@ -890,15 +911,16 @@ trojan://<example-trojan-node>
 ## 13. 备份节点配置
 
 ```text
-◆ Argo-Singbox · 备份
+◆ ArgoFusion · 备份
+  操作提示：输入 0 返回上级；主面板输入 0 退出。
 ----------------------------------------------------------------
-节点配置       /etc/asb/nodes.conf
-默认备份目录   /etc/asb/backup
+节点配置       /etc/argofusion/nodes.conf
+默认备份目录   /etc/argofusion/backup
 
-› 请输入节点备份文件夹或 .tar.gz 路径 [/etc/asb/backup]：
+› 请输入节点备份文件夹或 .tar.gz 路径 [/etc/argofusion/backup]：
 
 • 正在创建节点配置备份...
-✓ 节点配置备份完成：/etc/asb/backup/asb-nodes-backup-20260709-224500.tar.gz
+✓ 节点配置备份完成：/etc/argofusion/backup/argofusion-nodes-backup-20260709-224500.tar.gz
 ```
 
 错误：
@@ -906,7 +928,7 @@ trojan://<example-trojan-node>
 ```text
 ✗ 备份路径必须使用绝对路径。
 ✗ 备份文件必须以 .tar.gz 结尾。
-✗ 项目目录内仅允许使用默认备份目录 /etc/asb/backup。
+✗ 项目目录内仅允许使用默认备份目录 /etc/argofusion/backup。
 ```
 
 ---
@@ -914,15 +936,16 @@ trojan://<example-trojan-node>
 ## 14. 恢复节点配置
 
 ```text
-◆ Argo-Singbox · 恢复
+◆ ArgoFusion · 恢复
+  操作提示：输入 0 返回上级；主面板输入 0 退出。
 ----------------------------------------------------------------
-› 请输入节点备份文件或目录 [/etc/asb/backup，留空使用最新备份]：
+› 请输入节点备份文件或目录 [/etc/argofusion/backup，留空使用最新备份]：
 
-• 使用最新备份：/etc/asb/backup/asb-nodes-backup-20260709-224500.tar.gz
+• 使用最新备份：/etc/argofusion/backup/argofusion-nodes-backup-20260709-224500.tar.gz
 • 正在校验备份归档...
 • 正在恢复节点配置...
 • 正在校验配置并重启服务...
-✓ 节点配置恢复完成：/etc/asb/backup/asb-nodes-backup-20260709-224500.tar.gz
+✓ 节点配置恢复完成：/etc/argofusion/backup/argofusion-nodes-backup-20260709-224500.tar.gz
 ```
 
 恢复失败：
@@ -946,7 +969,8 @@ trojan://<example-trojan-node>
 ## 15. 重启全部服务
 
 ```text
-◆ Argo-Singbox · 重启服务
+◆ ArgoFusion · 重启服务
+  操作提示：输入 0 返回上级；主面板输入 0 退出。
 ----------------------------------------------------------------
 • 正在重启 Nginx、Sing-box 与 Argo...
 ✓ 服务已重启。
@@ -959,10 +983,11 @@ trojan://<example-trojan-node>
 ## 16. 第三方 BBR / DD 工具
 
 ```text
-◆ Argo-Singbox · 第三方 BBR / DD 工具
+◆ ArgoFusion · 第三方 BBR / DD 工具
+  操作提示：输入 0 返回上级；主面板输入 0 退出。
 ----------------------------------------------------------------
 ! 第三方工具：升级内核、安装 BBR、DD 系统均由 ylx2016/Linux-NetSpeed 脚本提供。
-! Argo-Singbox 不维护其代码、功能与执行结果。
+! ArgoFusion 不维护其代码、功能与执行结果。
 
 • 正在启动第三方脚本...
 ```
@@ -971,21 +996,22 @@ trojan://<example-trojan-node>
 
 ---
 
-## 17. 卸载 Argo-Singbox
+## 17. 卸载 ArgoFusion
 
 ### 17.1 卸载确认
 
 ```text
-◆ Argo-Singbox · 卸载
+◆ ArgoFusion · 卸载
+  操作提示：输入 0 返回上级；主面板输入 0 退出。
 ----------------------------------------------------------------
 ! 即将删除以下项目内容：
-  • Argo-Singbox systemd 服务
+  • ArgoFusion systemd 服务
   • 私有 Argo / cloudflared 核心
   • 私有 Sing-box 核心
-  • /etc/asb 配置、订阅与备份
-  • asb 命令入口
+  • /etc/argofusion 配置、订阅与备份
+  • af 命令入口
 
-› 确认彻底卸载 Argo-Singbox？[y/N]：y
+› 确认彻底卸载 ArgoFusion？[y/N]：y
 ```
 
 ### 17.2 可选清理
@@ -1002,7 +1028,7 @@ trojan://<example-trojan-node>
 • 正在停止项目服务...
 • 正在删除项目文件...
 • 正在清理 systemd 服务...
-✓ Argo-Singbox 已彻底卸载；本次脚本执行结束。
+✓ ArgoFusion 已彻底卸载；本次脚本执行结束。
 ```
 
 用户取消：
@@ -1014,7 +1040,7 @@ trojan://<example-trojan-node>
 卸载保护：
 
 ```text
-✗ 缺少项目所有权标记，拒绝自动卸载；请人工核对 /etc/asb。
+✗ 缺少项目所有权标记，拒绝自动卸载；请人工核对 /etc/argofusion。
 ```
 
 ---
@@ -1066,7 +1092,7 @@ trojan://<example-trojan-node>
 ### 18.5 服务和端口
 
 ```text
-✗ 检测到非本项目服务 asb-sing-box.service，安装已停止，未覆盖现有服务。
+✗ 检测到非本项目服务 argofusion-core.service，安装已停止，未覆盖现有服务。
 ! 检测到本项目旧版 sing-box.service，将迁移为项目专属服务名。
 ✗ 节点端口仍被未知进程占用。为避免终止第三方服务，安装已停止。
 ```
@@ -1115,8 +1141,8 @@ prompt() # › 输入提示
 
 ## 20. 最终统一原则
 
-1. **主视觉不变**：继续使用当前 Argo-Singbox ASCII 字标和蓝色主色。
-2. **页面标题统一**：所有独立操作都使用 `◆ Argo-Singbox · 功能名称`。
+1. **主视觉不变**：继续使用当前 ArgoFusion ASCII 字标和蓝色主色。
+2. **页面标题统一**：所有独立操作都使用 `◆ ArgoFusion · 功能名称`。
 3. **内容分区统一**：只使用 `▸` 表示一级分区，避免同时出现多种不相关符号。
 4. **成功与关闭分离**：开启用绿色 `✓`，关闭/停用用黄色 `!`。
 5. **错误等级清晰**：真正阻断流程才使用红色 `✗`。
@@ -1138,36 +1164,38 @@ prompt() # › 输入提示
 /_/  |_/_/   \__, /\____//____/_/_/ /_/\__, /_.___/\____/_/|_|
             /____/                    /____/
 
-Argo-Singbox  v2.12.2 · Argo Tunnel · Sing-box Core · WSS Proxy
+ArgoFusion  v2.14.4 · Argo Tunnel · Sing-box / Xray · WSS Proxy
 系统环境      Debian GNU/Linux 13 (trixie) · amd64 · IP 203.0.113.10
 ----------------------------------------------------------------
 运行概览
 Argo 服务      运行中
 Sing-box 服务  运行中
-Argo 域名      asb.example.com
+Argo 域名      argofusion.example.com
 优选入口       198.51.100.10:443
 Argo 回源      127.0.0.1:3010
-组件版本       脚本 v2.12.2 · Sing-box 1.13.0-rc.4 · Cloudflared 2026.7.0
+组件版本       脚本 v2.14.4 · Sing-box 1.13.0-rc.4 · Cloudflared 2026.7.0
 WARP 分流      未启用
 ----------------------------------------------------------------
 
-◆ Argo-Singbox · 控制中心
+◆ ArgoFusion · 控制中心
+  操作提示：输入 0 返回上级；主面板输入 0 退出。
 ----------------------------------------------------------------
 ▸ 日常管理
-   1  查看节点信息                       [asb -n]
-   2  开启/关闭 Argo                     [asb -a]
-   3  开启/关闭 Sing-box                 [asb -s]
-   4  集中配置                           [asb -c]
-   5  重启全部服务                       [asb -r]
-   6  完整诊断                           [asb -x]
+   1  查看节点与订阅                     [af -n]
+   2  开启/关闭 Argo                     [af -a]
+   3  开启/关闭当前代理核心              [af -s]
+   4  切换代理核心                       [当前 Sing-box / Xray]
+   5  集中配置                           [af -c]
+   6  重启全部服务                       [af -r]
+   7  完整诊断                           [af -x]
 
 ▸ 维护工具
-   7  安装 / 更新 Argo-Singbox           [asb -i]
-   8  更新 Argo / Sing-box 核心          [asb -v]
-   9  备份节点配置                       [asb -k]
-  10  恢复节点配置                       [asb -l]
-  11  第三方 BBR / DD 工具               [asb -b]
-  12  卸载 Argo-Singbox                  [asb -u]
+   8  安装 / 更新 ArgoFusion             [af -i]
+   9  更新 Argo / 当前代理核心           [af -v]
+  10  备份节点配置                       [af -k]
+  11  恢复节点配置                       [af -l]
+  12  第三方 BBR / DD 工具               [af -b]
+  13  卸载 ArgoFusion                    [af -u]
    0  退出
 ----------------------------------------------------------------
 › 请选择：
