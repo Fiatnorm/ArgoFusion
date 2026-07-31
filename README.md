@@ -1,4 +1,4 @@
-# ArgoFusion · AFS v2.14.11
+# ArgoFusion · AFS v2.14.12
 
 面向固定 Argo Token 隧道的中文轻量安装脚本，提供：
 
@@ -45,6 +45,8 @@ sudo ./argofusion.sh -i
 升级时仅在旧目录存在 `managed` 所有权标记且 `/etc/afs` 不存在时迁移；`/etc/argofusion` 与 `/etc/asb` 若同时为真实目录，或任一旧目录缺少所有权标记，脚本会停止并要求人工核对。迁移会临时保留旧目录到 `/etc/afs` 的兼容链接；新服务验证通过后才移除旧服务和兼容链接，失败则恢复旧服务。
 
 迁移会先停止旧服务并等待节点端口释放，再启动新服务；若新服务启动失败，会先停用新服务再恢复旧服务，避免两套 sing-box 同时抢占节点端口。重新执行 v2.8.2 安装可修复旧版迁移失败后形成的新旧服务端口冲突。
+
+v2.14.12 精简终端与订阅中心文案：主面板统一使用“节点与订阅、配置管理、重启服务、运行诊断”等短名称；安装方式、服务开关、组件更新和订阅入口同步采用清晰一致的提示语，快捷命令与功能不变。
 
 v2.14.11 合并主面板的服务开关与节点配置备份/恢复：`af -a` 打开服务管理，`af -k` 打开节点配置备份与恢复；子菜单不再拥有独立短命令。切换代理核心新增主页面短命令 `af -p`。
 
@@ -175,13 +177,13 @@ sudo ./argofusion.sh -i
 | `sudo AF` | 与 `sudo af` 完全等价 |
 | `sudo af -i` | 选择使用 VPS 本地脚本重装，或从 GitHub 获取最新脚本后安装 |
 | `sudo af -n` | 显示全部节点、所有订阅地址及一张自动适配订阅 QR |
-| `sudo af -a` | 打开服务管理，选择开启或关闭 Argo Tunnel、代理核心 |
+| `sudo af -a` | 打开服务管理，切换 Argo Tunnel 或代理核心状态 |
 | `sudo af -p` | 切换 Sing-box / Xray 代理核心 |
 | `sudo af -c` | 修改 Token、域名、优选入口、端口、UUID、节点、SOCKS5 与 WARP 域名 |
 | `sudo af -r` | 重启 Nginx、当前代理内核和 Argo 服务 |
-| `sudo af -x` | 执行完整诊断、WS 检查并显示最近日志 |
+| `sudo af -x` | 执行运行诊断、WS 检查并显示最近日志 |
 | `sudo af -v` | 比较版本并更新 Argo/cloudflared 与当前选择的代理内核 |
-| `sudo af -k` | 打开节点配置备份与恢复菜单 |
+| `sudo af -k` | 打开节点备份与恢复菜单 |
 | `sudo af -b` | 启动第三方 Linux-NetSpeed BBR/DD 工具 |
 | `sudo af -u` | 彻底卸载本项目，并选择是否卸载共享依赖 |
 
@@ -192,23 +194,23 @@ sudo ./argofusion.sh -i
 ## 菜单
 
 ```text
-1. 查看节点与订阅 (af -n)
+1. 节点与订阅 (af -n)
 2. 服务管理 (af -a)
 3. 切换代理核心 (af -p)
-4. 集中配置 (af -c)
-5. 重启全部服务 (af -r)
-6. 完整诊断 (af -x)
+4. 配置管理 (af -c)
+5. 重启服务 (af -r)
+6. 运行诊断 (af -x)
 7. 安装 / 更新 ArgoFusion (af -i)
 8. 更新 Argo / 当前代理内核 (af -v)
-9. 节点配置备份与恢复 (af -k)
-10. 第三方 BBR / DD 工具 (af -b)
+9. 节点备份与恢复 (af -k)
+10. 第三方 BBR / DD (af -b)
 11. 卸载 ArgoFusion (af -u)
 0. 退出
 ```
 
-## 集中配置与分流
+## 配置管理与分流
 
-`af -c` 集中修改 Token、Argo 域名、优选入口、Argo Tunnel 回源端口和全局 UUID，也可以添加、修改或删除 VLESS、VMess、Trojan 的 WS + TLS 节点。修改 Tunnel 回源端口时，节点监听端口从“回源端口 + 1”开始依次顺延；添加节点时默认使用当前最大监听端口的下一个端口。配置保存在 `/etc/afs/config/nodes.conf`。修改后还必须在 Cloudflare Public Hostname 中把 Service 同步为新的 `http://localhost:端口`。
+`af -c` 用于修改 Token、Argo 域名、优选入口、Argo Tunnel 回源端口和全局 UUID，也可以添加、修改或删除 VLESS、VMess、Trojan 的 WS + TLS 节点。修改 Tunnel 回源端口时，节点监听端口从“回源端口 + 1”开始依次顺延；添加节点时默认使用当前最大监听端口的下一个端口。配置保存在 `/etc/afs/config/nodes.conf`。修改后还必须在 Cloudflare Public Hostname 中把 Service 同步为新的 `http://localhost:端口`。
 
 ### 切换 Sing-box / Xray
 
@@ -248,8 +250,8 @@ WARP 只覆盖匹配的网址，不会替换其他节点的 SOCKS5 配置。`af 
 
 ## 诊断、备份与恢复
 
-- `af -x`：检查配置与 Token 同步、三个服务、全部动态监听端口、每条公网 WS 路径、核心版本，并输出最近 30 条项目日志。
-- `af -k`：打开节点配置备份与恢复菜单。备份仅归档 `/etc/afs/config/nodes.conf`；默认保存到 `/etc/afs/backup/argofusion-nodes-backup-时间.tar.gz`，也可在子菜单指定其他绝对路径。恢复默认从 `/etc/afs/backup/` 选择最新节点归档，也可在子菜单指定目录或完整文件；解压前会验证 gzip、成员路径与文件类型，拒绝目录穿越、符号链接和特殊文件，失败自动回滚。传入旧版完整 `/etc/argofusion` 归档时，也只读取其中的 `nodes.conf`，不会恢复旧脚本、旧核心或整个项目目录。
+- `af -x`：执行运行诊断，检查配置与 Token 同步、三个服务、全部动态监听端口、每条公网 WS 路径、核心版本，并输出最近 30 条项目日志。
+- `af -k`：打开节点备份与恢复菜单。备份仅归档 `/etc/afs/config/nodes.conf`；默认保存到 `/etc/afs/backup/argofusion-nodes-backup-时间.tar.gz`，也可在子菜单指定其他绝对路径。恢复默认从 `/etc/afs/backup/` 选择最新节点归档，也可在子菜单指定目录或完整文件；解压前会验证 gzip、成员路径与文件类型，拒绝目录穿越、符号链接和特殊文件，失败自动回滚。传入旧版完整 `/etc/argofusion` 归档时，也只读取其中的 `nodes.conf`，不会恢复旧脚本、旧核心或整个项目目录。
 
 `af -v` 会分别显示 Argo/cloudflared 与当前选择的 Sing-box 或 Xray 的本地、目标版本，并分别询问是否更新。只下载、备份、替换和重启用户确认更新的核心；下载文件会校验 SHA256/可执行性，并在替换前检查当前配置。验证失败时只回滚本次选择的核心。
 
