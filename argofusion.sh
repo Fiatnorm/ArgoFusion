@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-VERSION="2.14.9"
+VERSION="2.14.11"
 PROJECT_NAME="ArgoFusion"
+PROJECT_CODE="AFS"
 COMMAND_NAME="af"
 PROJECT_REPO="Fiatnorm/ArgoFusion"
 PROJECT_BRANCH="main"
-WORK_DIR="/etc/argofusion"
+WORK_DIR="/etc/afs"
 WORK_DIR_NAME="${WORK_DIR##*/}"
+PREVIOUS_WORK_DIR="/etc/argofusion"
 LEGACY_WORK_DIR="/etc/asb"
 CONFIG_DIR="${WORK_DIR}/config"
 DATA_DIR="${WORK_DIR}/data"
@@ -31,8 +33,10 @@ SUB_CLASH_PROVIDER_FILE="${SUBSCRIPTION_DIR}/subscription.proxies.yaml"
 SUB_SING_BOX_FILE="${SUBSCRIPTION_DIR}/subscription.sing-box.json"
 OBSOLETE_SUBSCRIPTION_FILE="${SUBSCRIPTION_DIR}/subscription.shadowrocket"
 SUB_AUTO_QR_FILE="${SUBSCRIPTION_DIR}/subscription.auto.svg"
-SING_SERVICE="argofusion-core"
-ARGO_SERVICE="argofusion-tunnel"
+SING_SERVICE="afs-core"
+ARGO_SERVICE="afs-tunnel"
+PREVIOUS_SING_SERVICE="argofusion-core"
+PREVIOUS_ARGO_SERVICE="argofusion-tunnel"
 LEGACY_SING_SERVICE="asb-sing-box"
 LEGACY_ARGO_SERVICE="asb-cloudflared"
 LEGACY_MIGRATED=0
@@ -123,8 +127,8 @@ control_panel() {
   printf '%s\n' ' / ___ |/ /  / /_/ / /_/ /___/ / / / / / /_/ / /_/ / /_/ />  <'
   printf '%s\n' '/_/  |_/_/   \__, /\____//____/_/_/ /_/\__, /_.___/\____/_/|_|'
   printf '%s\n' '            /____/                    /____/'
-  printf '\n%s%s%s  %sv%s%s %s· Argo Tunnel · Sing-box / Xray · WSS Proxy%s\n' \
-    "$C_BOLD" "$C_BRIGHT_MAGENTA" "$PROJECT_NAME" "$C_BRIGHT_YELLOW" "$VERSION" \
+  printf '\n%s%s%s  %s%s v%s%s %s· Argo Tunnel · Sing-box / Xray · WSS Proxy%s\n' \
+    "$C_BOLD" "$C_BRIGHT_MAGENTA" "$PROJECT_NAME" "$C_BRIGHT_YELLOW" "$PROJECT_CODE" "$VERSION" \
     "$C_RESET" "$C_DIM" "$C_RESET"
   printf '%s' "$C_BRIGHT_CYAN"
   pad_right "系统环境" 12
@@ -140,8 +144,8 @@ control_panel() {
   printf '%s\n' ' / ___ |/ /  / /_/ / /_/ / __/ / /_/ (__  ) / /_/ / / / /'
   printf '%s\n' '/_/  |_|_/   \__, /\____/_/    \__,_/____/_/\____/_/ /_/'
   printf '%s\n' '            /____/'
-  printf '\n%s%s%s  %sv%s%s %s· Argo Tunnel · Sing-box / Xray · WSS%s\n' \
-    "$C_BOLD" "$C_BRIGHT_MAGENTA" "$PROJECT_NAME" "$C_BRIGHT_YELLOW" "$VERSION" \
+  printf '\n%s%s%s  %s%s v%s%s %s· Argo Tunnel · Sing-box / Xray · WSS%s\n' \
+    "$C_BOLD" "$C_BRIGHT_MAGENTA" "$PROJECT_NAME" "$C_BRIGHT_YELLOW" "$PROJECT_CODE" "$VERSION" \
     "$C_RESET" "$C_DIM" "$C_RESET"
   printf '%s' "$C_BRIGHT_CYAN"
   pad_right "系统环境" 12
@@ -171,7 +175,7 @@ warp_status() {
   fi
 }
 component_versions() {
-  printf 'AF %s · %s %s · CF %s' "$VERSION" "$(core_label)" \
+  printf '%s %s · %s %s · CF %s' "$PROJECT_CODE" "$VERSION" "$(core_label)" \
     "$(local_core_version 2>/dev/null || printf '未安装')" \
     "$(local_cloudflared_version 2>/dev/null || printf '未安装')"
 }
@@ -928,7 +932,7 @@ map \$http_upgrade \$connection_upgrade {
     '' close;
 }
 
-map \$http_user_agent \$argofusion_subscription_file {
+map \$http_user_agent \$afs_subscription_file {
     default ${SUB_BASE64_FILE};
     ~*(clash|mihomo|stash) ${SUB_CLASH_FILE};
     ~*(sing-box|singbox|sfi|sfa|sfm) ${SUB_SING_BOX_FILE};
@@ -971,7 +975,7 @@ EOF
     }
     location = /${UUID}/auto {
         default_type text/plain;
-        alias \$argofusion_subscription_file;
+        alias \$afs_subscription_file;
     }
     location = /${UUID}/raw {
         default_type text/plain;
@@ -1138,6 +1142,7 @@ create_local_command() {
   install -m 755 "$source_script" "${LOCAL_SCRIPT}.new"
   mv -f "${LOCAL_SCRIPT}.new" "$LOCAL_SCRIPT"
   ln -sfn "$LOCAL_SCRIPT" "/usr/local/bin/${COMMAND_NAME}"
+  ln -sfn "$LOCAL_SCRIPT" "/usr/local/bin/AF"
   for legacy_command in asb argo-singbox; do
     [[ -L "/usr/local/bin/${legacy_command}" ]] && rm -f "/usr/local/bin/${legacy_command}"
   done
@@ -1305,24 +1310,57 @@ is_project_service() {
     grep -Eq '^Description=(ArgoFusion|Argo-Singbox) ' "$unit_file"
 }
 
-migrate_legacy_install() {
-  local migration_backup legacy_file legacy_target
-  [[ -d "$LEGACY_WORK_DIR" ]] || return 0
-  if [[ -L "$LEGACY_WORK_DIR" ]]; then
-    legacy_target="$(readlink -f "$LEGACY_WORK_DIR" 2>/dev/null || true)"
-    if [[ "$legacy_target" == "$WORK_DIR" && -f "$MANAGED_FILE" ]]; then
+assert_command_names_available() {
+  local command_path target command
+  for command in "$COMMAND_NAME" AF; do
+    command_path="/usr/local/bin/${command}"
+    [[ -e "$command_path" || -L "$command_path" ]] || continue
+    [[ -L "$command_path" ]] ||
+      die "检测到非项目命令 ${command_path}，拒绝覆盖。"
+    target="$(readlink -f "$command_path" 2>/dev/null || true)"
+    case "$target" in
+      "$LOCAL_SCRIPT"|"${PREVIOUS_WORK_DIR}/argofusion.sh"|"${LEGACY_WORK_DIR}/argo-singbox.sh") ;;
+      *) die "检测到未知命令链接 ${command_path}，拒绝覆盖。" ;;
+    esac
+  done
+}
+
+migrate_managed_work_dir() {
+  local source_dir="$1" source_label="$2" source_target
+  [[ -e "$source_dir" || -L "$source_dir" ]] || return 0
+  if [[ -L "$source_dir" ]]; then
+    source_target="$(readlink -f "$source_dir" 2>/dev/null || true)"
+    if [[ "$source_target" == "$WORK_DIR" && -f "$MANAGED_FILE" ]]; then
       LEGACY_MIGRATED=1
       return 0
     fi
-    die "检测到未知旧目录符号链接 ${LEGACY_WORK_DIR}，拒绝自动迁移。"
+    die "检测到未知旧目录符号链接 ${source_dir}，拒绝自动迁移。"
   fi
-  [[ -f "${LEGACY_WORK_DIR}/managed" ]] ||
-    die "检测到 ${LEGACY_WORK_DIR} 但缺少项目所有权标记，拒绝自动迁移。"
+  [[ -d "$source_dir" ]] || die "旧项目路径类型异常，拒绝自动迁移：${source_dir}"
+  [[ -f "${source_dir}/managed" ]] ||
+    die "检测到 ${source_dir} 但缺少项目所有权标记，拒绝自动迁移。"
   [[ ! -e "$WORK_DIR" ]] ||
-    die "${WORK_DIR} 与旧目录 ${LEGACY_WORK_DIR} 同时存在，请先人工核对，拒绝自动覆盖。"
-  mv "$LEGACY_WORK_DIR" "$WORK_DIR"
-  ln -s "$WORK_DIR" "$LEGACY_WORK_DIR"
-  migration_backup="${WORK_DIR}/backup/pre-argofusion-namespace"
+    die "${WORK_DIR} 与旧目录 ${source_dir} 同时存在，请先人工核对，拒绝自动覆盖。"
+  mv "$source_dir" "$WORK_DIR"
+  ln -s "$WORK_DIR" "$source_dir"
+  LEGACY_MIGRATED=1
+  green "已将 ${source_label} 安装目录迁移为 ${WORK_DIR}。"
+}
+
+migrate_legacy_install() {
+  local migration_backup legacy_file source_count=0 source_dir
+  for source_dir in "$PREVIOUS_WORK_DIR" "$LEGACY_WORK_DIR"; do
+    [[ -L "$source_dir" || ! -e "$source_dir" ]] || ((source_count += 1))
+  done
+  ((source_count <= 1)) ||
+    die "检测到 ${PREVIOUS_WORK_DIR} 与 ${LEGACY_WORK_DIR} 两个旧安装目录，请先人工核对。"
+
+  migrate_managed_work_dir "$PREVIOUS_WORK_DIR" "旧 ArgoFusion"
+  migrate_managed_work_dir "$LEGACY_WORK_DIR" "旧 Argo-Singbox"
+
+  [[ -f "${WORK_DIR}/asb.env" || -f "${WORK_DIR}/argo-singbox.sh" ]] || return 0
+  ensure_project_layout
+  migration_backup="${BACKUP_DIR}/pre-afs-namespace"
   install -d -m 700 "$migration_backup"
   for legacy_file in asb.env argo-singbox.sh; do
     [[ -f "${WORK_DIR}/${legacy_file}" ]] && cp -a "${WORK_DIR}/${legacy_file}" "$migration_backup/"
@@ -1330,13 +1368,12 @@ migrate_legacy_install() {
   [[ -f "$NODES_CONFIG" ]] && cp -a "$NODES_CONFIG" "$migration_backup/"
   [[ -f "${WORK_DIR}/asb.env" ]] && mv "${WORK_DIR}/asb.env" "$ENV_FILE"
   [[ -f "${WORK_DIR}/argo-singbox.sh" ]] && mv "${WORK_DIR}/argo-singbox.sh" "$LOCAL_SCRIPT"
-  LEGACY_MIGRATED=1
-  green "已将旧安装目录迁移为 ${WORK_DIR}。"
 }
 
 remove_legacy_services() {
   local service unit_file
-  for service in "$LEGACY_SING_SERVICE" "$LEGACY_ARGO_SERVICE"; do
+  for service in "$PREVIOUS_SING_SERVICE" "$PREVIOUS_ARGO_SERVICE" \
+    "$LEGACY_SING_SERVICE" "$LEGACY_ARGO_SERVICE"; do
     unit_file="/etc/systemd/system/${service}.service"
     [[ -e "$unit_file" ]] || continue
     if is_project_service "$unit_file"; then
@@ -1349,10 +1386,12 @@ remove_legacy_services() {
 }
 
 remove_legacy_symlink() {
-  local target
-  [[ -L "$LEGACY_WORK_DIR" ]] || return 0
-  target="$(readlink -f "$LEGACY_WORK_DIR" 2>/dev/null || true)"
-  [[ "$target" == "$WORK_DIR" ]] && rm -f "$LEGACY_WORK_DIR"
+  local target source_dir
+  for source_dir in "$PREVIOUS_WORK_DIR" "$LEGACY_WORK_DIR"; do
+    [[ -L "$source_dir" ]] || continue
+    target="$(readlink -f "$source_dir" 2>/dev/null || true)"
+    [[ "$target" == "$WORK_DIR" ]] && rm -f "$source_dir"
+  done
 }
 
 wait_for_node_ports_free() {
@@ -1373,13 +1412,14 @@ service_belongs_to_project() {
   unit_file="$(systemctl show "$service" -p FragmentPath --value 2>/dev/null || true)"
   exec_start="$(systemctl show "$service" -p ExecStart --value 2>/dev/null || true)"
   is_project_service "$unit_file" ||
-    [[ "$exec_start" == *"${WORK_DIR}/"* || "$exec_start" == *"${LEGACY_WORK_DIR}/"* ]]
+    [[ "$exec_start" == *"${WORK_DIR}/"* || "$exec_start" == *"${PREVIOUS_WORK_DIR}/"* ||
+      "$exec_start" == *"${LEGACY_WORK_DIR}/"* ]]
 }
 
 stop_conflicting_sing_box_services() {
   local service
   systemctl stop "$SING_SERVICE" 2>/dev/null || true
-  for service in "$LEGACY_SING_SERVICE" sing-box; do
+  for service in "$PREVIOUS_SING_SERVICE" "$LEGACY_SING_SERVICE" sing-box; do
     systemctl list-unit-files "${service}.service" --no-legend 2>/dev/null |
       grep -q "^${service}.service" || continue
     if service_belongs_to_project "$service"; then
@@ -1397,7 +1437,7 @@ stop_orphan_project_listeners() {
       [[ -n "$pid" ]] || continue
       exe="$(readlink -f "/proc/${pid}/exe" 2>/dev/null || true)"
       case "$exe" in
-        "${BIN_DIR}/sing-box"|"${BIN_DIR}/xray"|"${LEGACY_WORK_DIR}/bin/sing-box"|"${LEGACY_WORK_DIR}/sing-box")
+        "${BIN_DIR}/sing-box"|"${BIN_DIR}/xray"|"${PREVIOUS_WORK_DIR}/bin/sing-box"|"${PREVIOUS_WORK_DIR}/bin/xray"|"${PREVIOUS_WORK_DIR}/sing-box"|"${PREVIOUS_WORK_DIR}/xray"|"${LEGACY_WORK_DIR}/bin/sing-box"|"${LEGACY_WORK_DIR}/sing-box")
           kill "$pid" 2>/dev/null || true
           info "已停止遗留项目核心进程 PID ${pid}（端口 ${port}）。"
           found=1
@@ -1425,6 +1465,9 @@ install_project() {
   local install_mode="${1:-local}" installer_source latest_installer
   local work_backup="" sing_box_stage xray_stage argo_stage file
   require_root
+  installer_source="$(mktemp)"
+  install -m 755 "$0" "$installer_source"
+  assert_command_names_available
   control_panel
   subsection "安装 / 更新"
   info "输入 0 可取消本次安装并返回上级。"
@@ -1433,9 +1476,10 @@ install_project() {
     info "正在获取 ${PROJECT_REPO} ${PROJECT_BRANCH} 的最新安装脚本。"
     fetch_latest_installer "$latest_installer"
     if ! cmp -s "$latest_installer" "$0"; then
+      migrate_legacy_install
       install -d -m 755 "$WORK_DIR"
       create_local_command "$latest_installer"
-      rm -f "$latest_installer"
+      rm -f "$latest_installer" "$installer_source"
       green "本地脚本已更新，正在切换到新版继续安装。"
       exec bash "$LOCAL_SCRIPT" -i --github-refreshed
     fi
@@ -1449,10 +1493,9 @@ install_project() {
   load_env
   if ! prompt_install_values; then
     yellow "已取消安装 / 更新。"
+    rm -f "$installer_source"
     return 0
   fi
-  installer_source="$(mktemp)"
-  install -m 755 "$0" "$installer_source"
   detect_arch
   install_dependencies
   assert_service_names_available
@@ -1481,7 +1524,7 @@ install_project() {
   mv -f "${BIN_DIR}/xray.new" "${BIN_DIR}/xray"
   mv -f "${BIN_DIR}/cloudflared.new" "${BIN_DIR}/cloudflared"
   rm -f "$sing_box_stage" "$xray_stage" "$argo_stage"
-  printf 'version=%s\n' "$VERSION" >"$MANAGED_FILE"
+  printf 'project=%s\nversion=%s\n' "$PROJECT_CODE" "$VERSION" >"$MANAGED_FILE"
   save_env
   write_all_core_configs
   if [[ -f "$LEGACY_NGINX_CONFIG" ]] &&
@@ -1504,13 +1547,13 @@ install_project() {
   fi
   systemctl restart nginx "$SING_SERVICE" "$ARGO_SERVICE"
   if wait_for_services; then
-    remove_legacy_services
-    remove_legacy_symlink
+    : # 完整健康检查通过前，保留旧服务与目录兼容链接以便回退。
   else
     yellow "新服务尚未全部启动，已保留旧服务文件以便排查。"
     if ((LEGACY_MIGRATED)); then
       systemctl disable --now "$SING_SERVICE" "$ARGO_SERVICE" 2>/dev/null || true
-      systemctl restart "$LEGACY_SING_SERVICE" "$LEGACY_ARGO_SERVICE" 2>/dev/null || true
+      systemctl restart "$PREVIOUS_SING_SERVICE" "$PREVIOUS_ARGO_SERVICE" \
+        "$LEGACY_SING_SERVICE" "$LEGACY_ARGO_SERVICE" 2>/dev/null || true
       yellow "已先停用新服务再恢复旧服务，避免新旧 sing-box 同时抢占节点端口。"
     fi
   fi
@@ -1518,9 +1561,18 @@ install_project() {
   sync_argo_domain
   rm -f "$LEGACY_NODES_FILE"
   if health_check; then
+    remove_legacy_services
+    remove_legacy_symlink
+    systemctl daemon-reload
     green "${PROJECT_NAME} 安装 / 更新完成，核心链路检查通过。"
   else
     yellow "${PROJECT_NAME} 文件已安装，但健康检查未全部通过；请先处理上述错误再使用节点。"
+    if ((LEGACY_MIGRATED)); then
+      systemctl disable --now "$SING_SERVICE" "$ARGO_SERVICE" 2>/dev/null || true
+      systemctl restart "$PREVIOUS_SING_SERVICE" "$PREVIOUS_ARGO_SERVICE" \
+        "$LEGACY_SING_SERVICE" "$LEGACY_ARGO_SERVICE" 2>/dev/null || true
+      yellow "已恢复旧服务并保留旧目录兼容链接。"
+    fi
   fi
   section "运行摘要"
   state_value "Argo Tunnel" "$(service_status "$ARGO_SERVICE")"
@@ -1531,7 +1583,7 @@ install_project() {
   key_value "版本信息" "$(component_versions)"
   state_value "WARP 分流" "$(warp_status)"
   key_value "节点文件" "$NODES_FILE"
-  key_value "管理命令" "$COMMAND_NAME"
+  key_value "管理命令" "${COMMAND_NAME} / AF"
   show_install_nodes
 }
 
@@ -1946,7 +1998,7 @@ backup_project() {
   install -m 600 "$NODES_CONFIG" "${manifest_dir}/nodes.conf"
   {
     printf 'type=nodes\n'
-    printf 'project=%s\n' "$PROJECT_NAME"
+    printf 'project=%s\n' "$PROJECT_CODE"
     printf 'version=%s\n' "$VERSION"
     printf 'created_at=%s\n' "$(date -Iseconds)"
     printf 'source=%s\n' "$NODES_CONFIG"
@@ -1977,7 +2029,7 @@ validate_backup_archive() {
   if tar -tvzf "$archive" 2>/dev/null | awk 'substr($1,1,1) !~ /^[-d]$/ {bad=1} END {exit !bad}'; then
     die "备份归档包含符号链接或其他特殊文件，拒绝恢复。"
   fi
-  if ! grep -Eq '^(argofusion-nodes-backup|argofusion|asb-nodes-backup|asb)/nodes\.conf$' <<<"$members"; then
+  if ! grep -Eq '^(argofusion-nodes-backup|afs|argofusion|asb-nodes-backup|asb)/nodes\.conf$' <<<"$members"; then
     die "备份归档不包含可恢复的节点配置 nodes.conf。"
   fi
 }
@@ -2016,6 +2068,9 @@ restore_project() {
   elif [[ -f "$stage/${WORK_DIR_NAME}/nodes.conf" ]]; then
     nodes_source="$stage/${WORK_DIR_NAME}/nodes.conf"
     yellow "检测到旧版完整备份，仅恢复其中的节点配置，不替换脚本或核心。"
+  elif [[ -f "$stage/${PREVIOUS_WORK_DIR##*/}/nodes.conf" ]]; then
+    nodes_source="$stage/${PREVIOUS_WORK_DIR##*/}/nodes.conf"
+    yellow "检测到旧 ArgoFusion 完整备份，仅恢复其中的节点配置。"
   elif [[ -f "$stage/asb/nodes.conf" ]]; then
     nodes_source="$stage/asb/nodes.conf"
     yellow "检测到 Argo-Singbox 完整备份，仅恢复其中的节点配置。"
@@ -2040,6 +2095,28 @@ restore_project() {
   red "节点配置恢复失败，正在回滚。"
   yellow "已恢复到执行恢复操作前的状态。"
   die "节点配置恢复失败，已回滚到恢复前状态。"
+}
+
+backup_restore_menu() {
+  local choice
+  require_root
+  while true; do
+    brand "${PROJECT_NAME} · 节点配置备份与恢复" back
+    key_value "节点配置" "$NODES_CONFIG"
+    key_value "默认目录" "$BACKUP_DIR"
+    section "操作"
+    menu_item 1 "备份节点配置"
+    menu_item 2 "恢复节点配置"
+    menu_item 0 "返回"
+    ui_line
+    read_choice "请选择："; choice="$REPLY"
+    case "$choice" in
+      1) backup_project ;;
+      2) restore_project ;;
+      0) return ;;
+      *) yellow "请输入 0、1 或 2。" ;;
+    esac
+  done
 }
 
 colorize_journal() {
@@ -2179,6 +2256,29 @@ toggle_service() {
   fi
 }
 
+manage_services() {
+  local choice
+  require_root
+  while true; do
+    load_env
+    brand "${PROJECT_NAME} · 服务管理" back
+    state_value "Argo Tunnel" "$(service_status "$ARGO_SERVICE")"
+    state_value "代理核心" "$(core_label) · $(service_status "$SING_SERVICE")"
+    section "操作"
+    menu_item 1 "开启/关闭 Argo Tunnel"
+    menu_item 2 "开启/关闭代理核心 $(core_label)"
+    menu_item 0 "返回"
+    ui_line
+    read_choice "请选择："; choice="$REPLY"
+    case "$choice" in
+      1) toggle_service "$ARGO_SERVICE" "Argo Tunnel" ;;
+      2) toggle_service "$SING_SERVICE" "代理核心 $(core_label)" ;;
+      0) return ;;
+      *) yellow "请输入 0、1 或 2。" ;;
+    esac
+  done
+}
+
 sync_versions() {
   local old_argo old_core new_argo new_core wanted_core wanted_argo core_target
   local core_stage="" argo_stage="" backup_stamp answer update_core=0 update_argo=0
@@ -2304,7 +2404,7 @@ purge_installed_packages() {
 }
 
 uninstall_project() {
-  local legacy_link target answer resolved_work_dir remove_nginx=0 remove_warp=0 remove_tools=0
+  local command_link legacy_link target answer resolved_work_dir remove_nginx=0 remove_warp=0 remove_tools=0
   require_root
   [[ -f "$MANAGED_FILE" ]] || die "缺少项目所有权标记，拒绝自动卸载；请人工核对 ${WORK_DIR}。"
   resolved_work_dir="$(readlink -f "$WORK_DIR" 2>/dev/null || true)"
@@ -2341,8 +2441,12 @@ uninstall_project() {
   systemctl disable --now "$SING_SERVICE" "$ARGO_SERVICE" 2>/dev/null || true
   rm -f "/etc/systemd/system/${SING_SERVICE}.service" "/etc/systemd/system/${ARGO_SERVICE}.service"
   remove_legacy_services
-  rm -f "$NGINX_CONFIG" "$LEGACY_NGINX_CONFIG" "/usr/local/bin/${COMMAND_NAME}" \
-    "$NODES_FILE" "$LEGACY_NODES_FILE"
+  rm -f "$NGINX_CONFIG" "$LEGACY_NGINX_CONFIG" "$NODES_FILE" "$LEGACY_NODES_FILE"
+  for command_link in "/usr/local/bin/${COMMAND_NAME}" /usr/local/bin/AF; do
+    [[ -L "$command_link" ]] || continue
+    target="$(readlink -f "$command_link" 2>/dev/null || true)"
+    [[ "$target" == "$LOCAL_SCRIPT" ]] && rm -f "$command_link"
+  done
   for legacy_link in /usr/local/bin/asb /usr/local/bin/argo-singbox; do
     [[ -L "$legacy_link" ]] || continue
     target="$(readlink -f "$legacy_link" 2>/dev/null || true)"
@@ -2400,38 +2504,34 @@ menu() {
     UI_TIGHT_SECTION=1
     section "日常管理"
     menu_item 1 "查看节点与订阅" "${COMMAND_NAME} -n"
-    menu_item 2 "开启/关闭 Argo" "${COMMAND_NAME} -a"
-    menu_item 3 "开启/关闭 $(core_label)" "${COMMAND_NAME} -s"
-    menu_item 4 "切换代理核心" "当前 $(core_label)"
-    menu_item 5 "集中配置" "${COMMAND_NAME} -c"
-    menu_item 6 "重启全部服务" "${COMMAND_NAME} -r"
-    menu_item 7 "完整诊断" "${COMMAND_NAME} -x"
+    menu_item 2 "服务管理" "${COMMAND_NAME} -a"
+    menu_item 3 "切换代理核心" "${COMMAND_NAME} -p"
+    menu_item 4 "集中配置" "${COMMAND_NAME} -c"
+    menu_item 5 "重启全部服务" "${COMMAND_NAME} -r"
+    menu_item 6 "完整诊断" "${COMMAND_NAME} -x"
     section "维护工具"
-    menu_item 8 "安装 / 更新 ${PROJECT_NAME}" "${COMMAND_NAME} -i"
-    menu_item 9 "更新 Argo / $(core_label) 核心" "${COMMAND_NAME} -v"
-    menu_item 10 "备份节点配置" "${COMMAND_NAME} -k"
-    menu_item 11 "恢复节点配置" "${COMMAND_NAME} -l"
-    menu_item 12 "第三方 BBR / DD 工具" "${COMMAND_NAME} -b"
-    menu_item 13 "卸载 ${PROJECT_NAME}" "${COMMAND_NAME} -u"
+    menu_item 7 "安装 / 更新 ${PROJECT_NAME}" "${COMMAND_NAME} -i"
+    menu_item 8 "更新 Argo / $(core_label) 核心" "${COMMAND_NAME} -v"
+    menu_item 9 "节点配置备份与恢复" "${COMMAND_NAME} -k"
+    menu_item 10 "第三方 BBR / DD 工具" "${COMMAND_NAME} -b"
+    menu_item 11 "卸载 ${PROJECT_NAME}" "${COMMAND_NAME} -u"
     menu_item 0 "退出"
     ui_line
     read_choice "请选择："; choice="$REPLY"
     case "$choice" in
       1) show_nodes ;;
-      2) toggle_service "$ARGO_SERVICE" "Argo Tunnel" ;;
-      3) toggle_service "$SING_SERVICE" "代理核心 $(core_label)" ;;
-      4) switch_proxy_core ;;
-      5) manage_config ;;
-      6) restart_services ;;
-      7) doctor ;;
-      8) install_menu ;;
-      9) sync_versions ;;
-      10) backup_project ;;
-      11) restore_project ;;
-      12) manage_bbr ;;
-      13) uninstall_project ;;
+      2) manage_services ;;
+      3) switch_proxy_core ;;
+      4) manage_config ;;
+      5) restart_services ;;
+      6) doctor ;;
+      7) install_menu ;;
+      8) sync_versions ;;
+      9) backup_restore_menu ;;
+      10) manage_bbr ;;
+      11) uninstall_project ;;
       0) exit 0 ;;
-      *) yellow "请输入 0 到 13。" ;;
+      *) yellow "请输入 0 到 11。" ;;
     esac
   done
 }
@@ -2439,8 +2539,8 @@ menu() {
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
   case "${1:-}" in
     -n) show_nodes ;;
-    -a) toggle_service "$ARGO_SERVICE" "Argo Tunnel" ;;
-    -s) load_env; toggle_service "$SING_SERVICE" "代理核心 $(core_label)" ;;
+    -a) manage_services ;;
+    -p) switch_proxy_core ;;
     -c) manage_config ;;
     -r) restart_services ;;
     -x) doctor ;;
@@ -2454,11 +2554,13 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
       fi
       ;;
     -v) sync_versions ;;
-    -k) backup_project "${2:-}" ;;
-    -l) restore_project "${2:-}" ;;
+    -k)
+      [[ -z "${2:-}" ]] || die "-k 仅打开节点配置备份与恢复菜单，不接受文件路径参数。"
+      backup_restore_menu
+      ;;
     -b) manage_bbr ;;
     -u) uninstall_project ;;
     "") menu ;;
-    *) die "未知参数。可用参数：-n、-a、-s、-c、-r、-x、-i、-v、-k、-l、-b、-u。" ;;
+    *) die "未知参数。可用参数：-n、-a、-p、-c、-r、-x、-i、-v、-k、-b、-u。" ;;
   esac
 fi

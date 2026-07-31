@@ -14,27 +14,27 @@
 
 安装后的主要文件：
 
-- `/etc/argofusion/argofusion.sh`
-- `/etc/argofusion/bin/sing-box`
-- `/etc/argofusion/bin/xray`
-- `/etc/argofusion/bin/cloudflared`
-- `/etc/argofusion/config/argofusion.env`
-- `/etc/argofusion/config/nodes.conf`
-- `/etc/argofusion/config/sing-box.json`
-- `/etc/argofusion/config/xray.json`
-- `/etc/argofusion/data/nodes.txt`
-- `/etc/argofusion/subscriptions/subscription.*`
-- `/etc/argofusion/backup/`
+- `/etc/afs/argofusion.sh`
+- `/etc/afs/bin/sing-box`
+- `/etc/afs/bin/xray`
+- `/etc/afs/bin/cloudflared`
+- `/etc/afs/config/argofusion.env`
+- `/etc/afs/config/nodes.conf`
+- `/etc/afs/config/sing-box.json`
+- `/etc/afs/config/xray.json`
+- `/etc/afs/data/nodes.txt`
+- `/etc/afs/subscriptions/subscription.*`
+- `/etc/afs/backup/`
 - `/etc/nginx/conf.d/argofusion.conf`
-- `/etc/systemd/system/argofusion-core.service`
-- `/etc/systemd/system/argofusion-tunnel.service`
-- `/usr/local/bin/af`
+- `/etc/systemd/system/afs-core.service`
+- `/etc/systemd/system/afs-tunnel.service`
+- `/usr/local/bin/af`（`/usr/local/bin/AF` 为等价入口）
 
 ## 配置与数据格式
 
-`/etc/argofusion/config/argofusion.env` 由脚本生成并通过 Bash `source` 读取，保存 UUID、Argo 域名、优选入口、Token、回源端口、WARP 配置和当前 `CORE` 选择。必须使用安全转义、`600` 权限和同目录临时文件原子替换；不得把未经验证的用户输入直接拼入该文件或 systemd unit。
+`/etc/afs/config/argofusion.env` 由脚本生成并通过 Bash `source` 读取，保存 UUID、Argo 域名、优选入口、Token、回源端口、WARP 配置和当前 `CORE` 选择。必须使用安全转义、`600` 权限和同目录临时文件原子替换；不得把未经验证的用户输入直接拼入该文件或 systemd unit。
 
-`/etc/argofusion/config/nodes.conf` 每行格式为：
+`/etc/afs/config/nodes.conf` 每行格式为：
 
 ```text
 标签|协议|WS路径|本地端口|SOCKS5
@@ -42,7 +42,7 @@
 
 其中协议仅允许 `vless`、`vmess`、`trojan`；SOCKS5 留空表示 direct，否则格式为 `主机:端口:用户名:密码`。标签、WS 路径和本地端口必须全局唯一。改变该格式时必须同时迁移旧文件，不能静默破坏已有节点。
 
-生成文件包括明文节点、Base64、Clash/Mihomo、Clash Provider、sing-box、Shadowrocket 订阅和自动适配订阅 QR。它们是派生数据，应由 `generate_nodes()` 统一重建，不应成为独立配置源。`config/` 与 `data/` 必须保持 `700`，但 `/etc/argofusion/subscriptions/` 必须为 `755`，否则 Nginx 工作进程无法读取 `alias` 订阅文件而返回 403。Clash/Mihomo 三种 WS 节点必须显式启用 UDP，并使用 Chrome 指纹和 `http/1.1` ALPN；VLESS、VMess 订阅必须保留 XUDP（`packetEncoding=xudp`、`packet-encoding: xudp`、`packet_encoding: "xudp"`）。sing-box TLS 保持核心默认版本协商，WS `headers.Host` 必须是字符串。
+生成文件包括明文节点、Base64、Clash/Mihomo、Clash Provider、sing-box、Shadowrocket 订阅和自动适配订阅 QR。它们是派生数据，应由 `generate_nodes()` 统一重建，不应成为独立配置源。`config/` 与 `data/` 必须保持 `700`，但 `/etc/afs/subscriptions/` 必须为 `755`，否则 Nginx 工作进程无法读取 `alias` 订阅文件而返回 403。Clash/Mihomo 三种 WS 节点必须显式启用 UDP，并使用 Chrome 指纹和 `http/1.1` ALPN；VLESS、VMess 订阅必须保留 XUDP（`packetEncoding=xudp`、`packet-encoding: xudp`、`packet_encoding: "xudp"`）。sing-box TLS 保持核心默认版本协商，WS `headers.Host` 必须是字符串。
 
 ## 关键函数职责
 
@@ -54,7 +54,7 @@
 - `generate_nodes()`：从环境配置和 `nodes.conf` 生成全部节点及订阅文件。
 - `apply_runtime_config()`：配置修改事务；验证失败必须恢复快照。
 - `sync_versions()`：核心版本比较、确认、暂存、校验、原子替换和失败回滚。
-- `backup_project()` / `restore_project()`：仅归档与恢复节点配置 `nodes.conf`；解压前必须拒绝路径穿越、符号链接和特殊文件，恢复不得替换脚本、核心二进制或整个 `/etc/argofusion`。
+- `backup_project()` / `restore_project()`：仅归档与恢复节点配置 `nodes.conf`；解压前必须拒绝路径穿越、符号链接和特殊文件，恢复不得替换脚本、核心二进制或整个 `/etc/afs`。
 - `uninstall_project()`：所有权检查后的项目范围卸载，不得扩大删除边界。
 
 ## 产品边界
@@ -64,7 +64,7 @@
 - 仅支持 Debian/Ubuntu + systemd。
 - 仅支持 amd64 和 arm64。
 - 仅支持固定 Argo Token，不加入临时隧道、Argo JSON 或 Cloudflare API 建隧道。
-- 支持 Sing-box 与 Xray 二选一；`af -c` 可在两者间切换，两个私有二进制与 `sing-box.json`、`xray.json` 可同时保留并从统一配置重建。Xray 仅适配既有的 VLESS、VMess、Trojan WS + TLS 节点，不加入 Reality、Hysteria2、XHTTP 或其他协议。
+- 支持 Sing-box 与 Xray 二选一；`af -p` 可在两者间切换，两个私有二进制与 `sing-box.json`、`xray.json` 可同时保留并从统一配置重建。Xray 仅适配既有的 VLESS、VMess、Trojan WS + TLS 节点，不加入 Reality、Hysteria2、XHTTP 或其他协议。
 - 默认保留 VLESS、VMess、Trojan 各一个 WS 节点，并允许通过 `af -c` 动态添加、修改或删除这三种协议的 WS 节点。
 - 允许节点按 inbound tag 与 WS 路径绑定独立 SOCKS5 出站。
 - 允许用户指定目标网址优先通过 Cloudflare 官方 WARP 客户端的本地 SOCKS5 proxy 出站；未命中时仍遵循节点 SOCKS5 或 direct。
@@ -78,20 +78,20 @@
 ## 命名规则
 
 - 仓库入口必须使用 `argofusion.sh`，不要重新创建 `sba.sh`。
-- 管理命令保持为 `af`。
-- systemd 服务保持为 `argofusion-core.service` 和 `argofusion-tunnel.service`。
-- 核心二进制必须放在 `/etc/argofusion/bin/`，不得写入或删除 `/usr/local/bin/sing-box`、`/usr/local/bin/xray`、`/usr/local/bin/cloudflared`。
-- 新增项目文件优先使用 `argofusion` 或 `argofusion` 前缀，避免与原版 SBA 文件混淆。
+- 管理命令保持为 `af`，并提供大小写兼容入口 `AF`。
+- systemd 服务保持为 `afs-core.service` 和 `afs-tunnel.service`。
+- 核心二进制必须放在 `/etc/afs/bin/`，不得写入或删除 `/usr/local/bin/sing-box`、`/usr/local/bin/xray`、`/usr/local/bin/cloudflared`。
+- 新增内部项目标识优先使用 `AFS`；`argofusion.*` 为保留的项目文件名，不得改名。
 
 ## 安全约束
 
 安装、更新和卸载修改必须满足：
 
-- 不得无条件删除整个 `/etc/argofusion`。
+- 不得无条件删除整个 `/etc/afs`。
 - 修改已有配置前必须保留备份，仅重建本项目管理的文件。
 - 不得覆盖第三方同名 systemd 服务。只有带本项目 `Description=SBA ...` 或 `Description=ArgoFusion ...` 标记的旧服务可以迁移。
-- 卸载必须检查 `/etc/argofusion/managed` 所有权标记。
-- 卸载只删除本项目私有核心、服务、Nginx 配置、`af` 链接和节点文件。
+- 卸载必须检查 `/etc/afs/managed` 所有权标记。
+- 卸载只删除本项目私有核心、服务、Nginx 配置、`af`/`AF` 链接和节点文件。
 - 核心更新必须先比较版本并请求确认。
 - 下载必须包含连接超时、总超时、重试、GitHub 代理回退和 SHA256 校验。
 - 更新流程必须遵循：下载到临时文件 → SHA256 与可执行性校验 → 所选内核配置检查 → 备份 → 原子替换 → 重启验证 → 失败回滚。
@@ -107,15 +107,15 @@
 - `af -n` 必须输出当前全部订阅链接、唯一一张自动适配订阅 QR 和明文节点；不得为其他订阅或单个节点重复输出 QR。自动适配订阅 QR 同时显示在网页订阅面板中，并作为单独的 `/auto-qr.svg` 订阅面板资源提供。
 - 节点连接地址使用优选入口，WebSocket Host 与 TLS SNI 使用 Argo 域名。
 - 修改 Token 或优选入口后，应重新生成节点并执行健康检查。
-- 健康检查必须测试 `/etc/argofusion/config/nodes.conf` 中的全部 WS 路径，默认包括 `/argo-vl`、`/argo-vm`、`/argo-tr`。
+- 健康检查必须测试 `/etc/afs/config/nodes.conf` 中的全部 WS 路径，默认包括 `/argo-vl`、`/argo-vm`、`/argo-tr`。
 - `af -c` 必须集中管理 Token、Argo 域名、优选入口、本地端口、UUID、动态节点、节点 SOCKS5 出站和 WARP 目标网址。
 - WARP 域名规则必须位于节点 SOCKS5 规则之前，保持 `目标网址 WARP → 节点 SOCKS5 → direct` 的优先级。
 - `af -x` 必须检查配置、Token、服务、动态端口、全部公网 WS 路径、核心版本、WARP（启用时）和最近日志。
-- `af -k/-l` 必须校验 `/etc/argofusion/managed`；只备份和恢复 `/etc/argofusion/config/nodes.conf` 节点配置，恢复失败必须自动回滚，不得用旧归档覆盖当前脚本、核心或项目目录。
+- `af -k` 必须打开节点配置备份与恢复菜单并校验 `/etc/afs/managed`；只备份和恢复 `/etc/afs/config/nodes.conf` 节点配置，恢复失败必须自动回滚，不得用旧归档覆盖当前脚本、核心或项目目录。子菜单不得另设短命令。
 - 终端配色必须在非 TTY、`TERM=dumb` 或 `NO_COLOR` 环境自动关闭，不得向日志和管道写入 ANSI 控制符。
 - 状态诊断保持简洁，并包含公网 IP、脚本/核心版本、内存、systemd 状态、监听端口和最近错误。
 - 普通启停、查看节点、修改配置和卸载不得执行 `git pull` 或重新下载仓库脚本。
-- `af -i` 必须提供“本地重装”和“在线更新安装”两种模式；仅在线更新安装联网更新项目脚本，校验通过后必须先替换 `/etc/argofusion/argofusion.sh`，再切换到新版脚本进程继续安装，其他日常命令仍运行 VPS 本地脚本。
+- `af -i` 必须提供“本地重装”和“在线更新安装”两种模式；仅在线更新安装联网更新项目脚本，校验通过后必须先替换 `/etc/afs/argofusion.sh`，再切换到新版脚本进程继续安装，其他日常命令仍运行 VPS 本地脚本。
 
 ## 修改要求
 
@@ -165,11 +165,11 @@ git diff --check
 
 ```bash
 nginx -t
-# Sing-box: /etc/argofusion/bin/sing-box check -c /etc/argofusion/config/sing-box.json
-# Xray: /etc/argofusion/bin/xray run -test -c /etc/argofusion/config/xray.json
-systemctl is-active nginx argofusion-core argofusion-tunnel
+# Sing-box: /etc/afs/bin/sing-box check -c /etc/afs/config/sing-box.json
+# Xray: /etc/afs/bin/xray run -test -c /etc/afs/config/xray.json
+systemctl is-active nginx afs-core afs-tunnel
 ss -lnt
-journalctl -u argofusion-core -u argofusion-tunnel -n 100 --no-pager
+journalctl -u afs-core -u afs-tunnel -n 100 --no-pager
 ```
 
 如果没有 VPS 环境，应明确列出未完成的运行时验证，不得用静态检查替代运行证明。

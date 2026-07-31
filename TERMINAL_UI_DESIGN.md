@@ -1,10 +1,10 @@
 # ArgoFusion 完整终端输出 UI 优化设计稿
 
-> 适用版本：ArgoFusion v2.14.9
+> 适用版本：ArgoFusion · AFS v2.14.11
 > 设计基准：用户提供的 v2.14.5 终端 UI 定稿
-> 对照脚本：`argofusion.sh`（当前工作区 v2.14.9）
+> 对照脚本：`argofusion.sh`（当前工作区 AFS v2.14.11）
 > 同步文件：`TERMINAL_UI_DESIGN.md`
-> 设计基础：延续现有 `◆ / ▸ / ✓ / ! / ✗ / • / ›` 视觉语言，采用用户指定的 ArgoFusion 斜体字标，适配 v2.14.5 分类目录、Sing-box/Xray 双内核、13 项主菜单及现有交互逻辑。
+> 设计基础：延续现有 `◆ / ▸ / ✓ / ! / ✗ / • / ›` 视觉语言，采用用户指定的 ArgoFusion 斜体字标，适配 v2.14.5 分类目录、Sing-box/Xray 双内核、11 项主菜单及现有交互逻辑。
 
 ---
 
@@ -15,15 +15,15 @@
 最新项目具有以下结构与交互特征：
 
 - 项目目录已重整为：
-  - `/etc/argofusion/bin/`
-  - `/etc/argofusion/config/`
-  - `/etc/argofusion/data/`
-  - `/etc/argofusion/subscriptions/`
-  - `/etc/argofusion/backup/`
+  - `/etc/afs/bin/`
+  - `/etc/afs/config/`
+  - `/etc/afs/data/`
+  - `/etc/afs/subscriptions/`
+  - `/etc/afs/backup/`
 - `config/`、`data/` 保持私有权限；`subscriptions/` 使用 `755`，供 Nginx 读取订阅文件。
 - Sing-box 与 Xray 均安装在项目私有目录，当前代理核心可在主面板独立切换。
-- 主面板共 13 项功能；“切换代理核心”已从集中配置中提升为日常操作。
-- 本文将 v2.14.5 视觉定稿同步至当前 v2.14.9，并保留其分类目录与权限提示。
+- 主面板共 11 项功能；服务开关与节点备份/恢复分别收敛为父操作，“切换代理核心”独立提供短命令。
+- 本文将 v2.14.5 视觉定稿同步至当前 AFS v2.14.11，并保留其分类目录与权限提示。
 - 当前脚本已采用本稿的斜体字标、ANSI `97` 亮白正文和上下文操作提示；后续调整仍以本稿为唯一终端输出基准。
 
 ---
@@ -130,7 +130,7 @@ UI_WIDTH=64
 | 普通正文 | `97` | 域名、路径、版本、说明 |
 | IP / 当前核心 | `95` | 公网 IP、优选 IP、Sing-box/Xray |
 | URL | `4;97` | 订阅链接 |
-| 菜单编号 | `93` | `0`～`13` |
+| 菜单编号 | `93` | `0`～`11` |
 | 菜单文字 | `97` | 菜单功能名 |
 | 快捷命令/辅助标签 | `96` | `[af -n]`、`[当前 Xray]` |
 | 成功/正常 | `92` | `✓`、运行中、已开启、通过 |
@@ -243,7 +243,7 @@ C_BRIGHT_WHITE=$'\033[97m'
 /_/  |_/_/   \__, /\____/_/    \__,_/____/_/\____/_/ /_/
             /____/
 
-ArgoFusion  v2.14.5 · Argo Tunnel · Sing-box / Xray · WSS
+ArgoFusion  AFS v2.14.11 · Argo Tunnel · Sing-box / Xray · WSS
 系统环境     Debian GNU/Linux 13 · amd64 · IP 203.0.113.10
 ----------------------------------------------------------------
 ▸ 运行概览
@@ -253,7 +253,7 @@ WARP 分流      未启用
 Argo 域名      argofusion.example.com
 优选入口       198.51.100.10:443
 Argo 回源      127.0.0.1:3010
-版本信息       AF 2.14.5 · Xray 26.7.11 · CF 2026.7.0
+版本信息       AFS 2.14.11 · Xray 26.7.11 · CF 2026.7.0
 ----------------------------------------------------------------
 
 ◆ ArgoFusion · 控制中心
@@ -261,20 +261,18 @@ Argo 回源      127.0.0.1:3010
 ----------------------------------------------------------------
 ▸ 日常管理
    1  查看节点与订阅                     [af -n]
-   2  开启/关闭 Argo Tunnel              [af -a]
-   3  开启/关闭代理核心                  [af -s]
-   4  切换代理核心                       [当前 Xray]
-   5  集中配置                           [af -c]
-   6  重启全部服务                       [af -r]
-   7  完整诊断                           [af -x]
+   2  服务管理                           [af -a]
+   3  切换代理核心                       [af -p]
+   4  集中配置                           [af -c]
+   5  重启全部服务                       [af -r]
+   6  完整诊断                           [af -x]
 
 ▸ 维护工具
-   8  安装 / 更新 ArgoFusion             [af -i]
-   9  更新 Argo / 当前核心               [af -v]
-  10  备份节点配置                       [af -k]
-  11  恢复节点配置                       [af -l]
-  12  第三方 BBR / DD 工具               [af -b]
-  13  卸载 ArgoFusion                    [af -u]
+   7  安装 / 更新 ArgoFusion             [af -i]
+   8  更新 Argo / 当前核心               [af -v]
+   9  节点配置备份与恢复                 [af -k]
+  10  第三方 BBR / DD 工具               [af -b]
+  11  卸载 ArgoFusion                    [af -u]
    0  退出
 ----------------------------------------------------------------
 › 请选择：
@@ -306,14 +304,14 @@ WARP 分流      已启用 · 代理异常
 
 - 已停止：亮黄。
 - 代理异常：亮红。
-- 首页不显示 `argofusion-core.service`、`argofusion-tunnel.service` 等内部名称。
+- 首页不显示 `afs-core.service`、`afs-tunnel.service` 等内部名称。
 
 ### 8.4 组件版本过长
 
 首选紧凑形式：
 
 ```text
-版本信息       AF 2.14.5 · Sing-box 1.13.14 · CF 2026.7.0
+版本信息       AFS 2.14.11 · Sing-box 1.13.14 · CF 2026.7.0
 ```
 
 若超过 64 列，自动拆分：
@@ -371,7 +369,24 @@ trojan://<完整节点链接>
 
 ---
 
-## 10. 服务开关页面
+## 10. 服务管理
+
+```text
+◆ ArgoFusion · 服务管理
+  操作提示：输入 0 返回上级。
+----------------------------------------------------------------
+Argo Tunnel    运行中
+代理核心       Xray · 运行中
+
+▸ 操作
+   1  开启/关闭 Argo Tunnel
+   2  开启/关闭代理核心 Xray
+   0  返回
+----------------------------------------------------------------
+› 请选择：
+```
+
+父操作使用 `af -a` 打开；两个子项只在此菜单中提供，不设置独立短命令。
 
 ### 10.1 Argo Tunnel
 
@@ -407,7 +422,7 @@ trojan://<完整节点链接>
 
 规则：
 
-- 主菜单中执行开关时显示当前状态和操作目标。
+- 服务管理子菜单中执行开关时显示当前状态和操作目标。
 - 开启成功使用绿色。
 - 主动关闭使用黄色。
 - 尚未安装且无法执行时使用红色。
@@ -416,6 +431,8 @@ trojan://<完整节点链接>
 ---
 
 ## 11. 切换代理核心
+
+主页面通过 `af -p` 进入；该短命令仅对应此主页面操作。
 
 ```text
 ◆ ArgoFusion · 切换代理核心
@@ -439,7 +456,7 @@ trojan://<完整节点链接>
 ```text
 • 正在检查 Xray 二进制与配置...
 • 正在生成并校验两套核心配置...
-• 正在切换 argofusion-core.service...
+• 正在切换 afs-core.service...
 • 正在验证 Nginx、Xray 与 Argo Tunnel...
 ✓ 已切换到 Xray，节点和订阅入口保持不变。
 ```
@@ -829,11 +846,11 @@ Token 状态     等待输入
 ```text
 ▸ 项目目录
 • 正在创建 ArgoFusion 分类目录...
-✓ 私有二进制     /etc/argofusion/bin
-✓ 配置文件       /etc/argofusion/config
-✓ 节点数据       /etc/argofusion/data
-✓ 订阅文件       /etc/argofusion/subscriptions
-✓ 节点备份       /etc/argofusion/backup
+✓ 私有二进制     /etc/afs/bin
+✓ 配置文件       /etc/afs/config
+✓ 节点数据       /etc/afs/data
+✓ 订阅文件       /etc/afs/subscriptions
+✓ 节点备份       /etc/afs/backup
 ✓ 目录权限       config/data 700 · subscriptions 755
 ```
 
@@ -853,7 +870,7 @@ Token 状态     等待输入
 
 ```text
 ✗ 新旧目录中的项目文件内容不同，拒绝覆盖。
-• 冲突文件：/etc/argofusion/nodes.conf
+• 冲突文件：/etc/afs/config/nodes.conf
 ```
 
 错误正文红色，具体路径亮白。
@@ -933,9 +950,9 @@ Argo 域名      argofusion.example.com
 优选入口       198.51.100.10:443
 Argo 回源      127.0.0.1:3010
 节点数量       3
-订阅目录       /etc/argofusion/subscriptions
-节点文件       /etc/argofusion/data/nodes.txt
-管理命令       af
+订阅目录       /etc/afs/subscriptions
+节点文件       /etc/afs/data/nodes.txt
+管理命令       af / AF
 ```
 
 安装完成后只展示节点链接或订阅入口中的一种主入口，避免同时输出过多重复内容。推荐：
@@ -1109,20 +1126,39 @@ v2.14.5 应新增：
 
 ---
 
-## 20. 备份节点配置
+## 20. 节点配置备份与恢复
+
+```text
+◆ ArgoFusion · 节点配置备份与恢复
+  操作提示：输入 0 返回上级。
+----------------------------------------------------------------
+节点配置       /etc/afs/config/nodes.conf
+默认目录       /etc/afs/backup
+
+▸ 操作
+   1  备份节点配置
+   2  恢复节点配置
+   0  返回
+----------------------------------------------------------------
+› 请选择：
+```
+
+父操作使用 `af -k` 打开；备份与恢复不再分别提供 `-k`、`-l` 短命令。
+
+### 20.1 备份节点配置
 
 ```text
 ◆ ArgoFusion · 备份节点配置
   操作提示：输入 0 取消备份。
 ----------------------------------------------------------------
-节点配置       /etc/argofusion/config/nodes.conf
-默认目录       /etc/argofusion/backup
+节点配置       /etc/afs/config/nodes.conf
+默认目录       /etc/afs/backup
 › 备份目录或 .tar.gz 路径 [默认目录]：
 
 • 正在校验节点配置...
 • 正在创建只含 nodes.conf 的安全归档...
 ✓ 节点配置备份完成。
-备份文件       /etc/argofusion/backup/
+备份文件       /etc/afs/backup/
                argofusion-nodes-backup-20260730-214500.tar.gz
 ```
 
@@ -1130,17 +1166,17 @@ v2.14.5 应新增：
 
 ---
 
-## 21. 恢复节点配置
+### 20.2 恢复节点配置
 
 ```text
 ◆ ArgoFusion · 恢复节点配置
   操作提示：输入 0 取消恢复。
 ----------------------------------------------------------------
-默认目录       /etc/argofusion/backup
+默认目录       /etc/afs/backup
 › 备份文件或目录 [留空使用最新备份]：
 
 • 使用最新备份：
-  /etc/argofusion/backup/argofusion-nodes-backup-20260730-214500.tar.gz
+  /etc/afs/backup/argofusion-nodes-backup-20260730-214500.tar.gz
 • 正在校验 gzip、成员路径和文件类型...
 • 正在恢复 nodes.conf...
 • 正在重新生成核心配置、Nginx 与订阅...
@@ -1211,13 +1247,13 @@ v2.14.5 应新增：
   操作提示：输入 0 取消卸载。
 ----------------------------------------------------------------
 ! 将删除以下项目内容：
-  • /etc/argofusion/bin
-  • /etc/argofusion/config
-  • /etc/argofusion/data
-  • /etc/argofusion/subscriptions
-  • /etc/argofusion/backup
+  • /etc/afs/bin
+  • /etc/afs/config
+  • /etc/afs/data
+  • /etc/afs/subscriptions
+  • /etc/afs/backup
   • ArgoFusion systemd 服务和 Nginx 配置
-  • /usr/local/bin/af
+  • /usr/local/bin/af、/usr/local/bin/AF
 
 › 输入 DELETE 确认彻底卸载：
 ```
@@ -1417,7 +1453,7 @@ nginx: [emerg] ...
 3. 所有路径更新为 `config/`、`data/`、`subscriptions/` 分类目录。
 4. 安装/诊断显示 `subscriptions 755`，`config/data 700`。
 5. 新增 ANSI `97` 亮白正文。
-6. 主菜单保持 13 项，并独立显示“切换代理核心”。
+6. 主菜单保持 11 项；服务管理、节点配置备份与恢复均为父操作，并独立显示“切换代理核心”。
 7. 集中配置不再重复提供核心切换。
 8. 页面操作提示改为 `main/back/cancel/none` 上下文模式。
 9. 首页版本信息采用紧凑形式。
