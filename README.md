@@ -265,14 +265,15 @@ WARP 只覆盖匹配的网址，不会替换其他节点的 SOCKS5 配置。`af 
 
 ## 节点、订阅和检查
 
-`af -n` 输出自适应、Base64、Clash/Mihomo、Sing-box、原始节点链接五类入口、自动适配订阅 QR 和全部原始节点链接。浏览器访问 `https://你的域名/你的UUID/` 可进入白底蓝字订阅中心，扫描同一自动适配订阅 QR，或打开不同客户端配置：
+`af -n` 先输出订阅面板链接，再按自适应、原始节点链接、Base64、Clash/Mihomo、Sing-box 的顺序输出五类入口、自动适配订阅 QR 和全部原始节点链接。链接标签统一按固定显示宽度对齐；节点只显示编号和标签，不重复显示协议与 WS 路径。浏览器访问 `https://你的域名/你的UUID/` 可进入白底蓝字订阅中心，扫描同一自动适配订阅 QR，或打开不同客户端配置：
 
 ```text
+https://你的域名/你的UUID/
 https://你的域名/你的UUID/auto
+https://你的域名/你的UUID/raw
 https://你的域名/你的UUID/base64
 https://你的域名/你的UUID/clash
 https://你的域名/你的UUID/sing-box
-https://你的域名/你的UUID/raw
 ```
 
 `/你的UUID` 会跳转到文件索引；索引 HTML 由 Nginx 直接返回，避免目录 URL 使用文件 `alias` 导致 500。`/auto` 根据 User-Agent 为 Clash/Mihomo 与 sing-box 返回对应格式，其他客户端（包括 Shadowrocket）返回 Base64 通用订阅。`/raw`（原始节点链接）以及 `/etc/afs/data/nodes.txt` 保留逐行明文 `vless://`、`vmess://`、`trojan://` 节点协议；不再生成或公开 Clash Provider。旧的 `/argofusion-sub` 与 `/argofusion-sub-base64` 入口继续可用。

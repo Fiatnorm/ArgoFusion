@@ -229,7 +229,7 @@ state_value() {
 }
 link_value() {
   printf '%s' "$C_BRIGHT_CYAN"
-  pad_right "$1" 14
+  pad_right "$1" 18
   printf '%s  %s%s%s%s\n' "$C_RESET" "$C_BRIGHT_WHITE" "$C_UNDERLINE" "$2" "$C_RESET"
 }
 prompt() { printf '%s%s› %s%s' "$C_BOLD" "$C_BRIGHT_MAGENTA" "$*" "$C_RESET"; }
@@ -2253,11 +2253,12 @@ show_nodes() {
   brand "${PROJECT_NAME} · 节点订阅"
   UI_TIGHT_SECTION=1
   subsection "订阅链接"
+  link_value "订阅面板" "https://${ARGO_DOMAIN}/${UUID}/"
   link_value "自适应订阅" "$auto_url"
+  link_value "原始节点链接" "https://${ARGO_DOMAIN}/${UUID}/raw"
   link_value "Base64 订阅" "https://${ARGO_DOMAIN}/${UUID}/base64"
   link_value "Clash/Mihomo 订阅" "https://${ARGO_DOMAIN}/${UUID}/clash"
   link_value "Sing-box 订阅" "https://${ARGO_DOMAIN}/${UUID}/sing-box"
-  link_value "原始节点链接" "https://${ARGO_DOMAIN}/${UUID}/raw"
   if command -v qrencode >/dev/null 2>&1; then
     section "自动适配 QR"
     qrencode -t ANSIUTF8 "$auto_url"
@@ -2267,10 +2268,9 @@ show_nodes() {
     IFS= read -r node <&3 || break
     ((index+=1))
     ((index > 1)) && printf '\n'
-    printf '%s%s[%02d]%s %s%s%s %s·%s %s%s%s %s· WS %s%s%s\n%s%s%s\n' \
+    printf '%s%s[%02d]%s %s%s%s\n%s%s%s\n' \
       "$C_BOLD" "$C_BRIGHT_CYAN" "$index" "$C_RESET" "$C_BRIGHT_WHITE" "$tag" "$C_RESET" \
-      "$C_BRIGHT_WHITE" "$C_RESET" "$C_BRIGHT_MAGENTA" "$(protocol_label "$protocol")" "$C_RESET" \
-      "$C_BRIGHT_WHITE" "$C_BRIGHT_YELLOW" "$path" "$C_RESET" "$C_BRIGHT_WHITE" "$node" "$C_RESET"
+      "$C_BRIGHT_WHITE" "$node" "$C_RESET"
   done <"$NODES_CONFIG" 3<"$NODES_FILE"
   printf '\n'
 }

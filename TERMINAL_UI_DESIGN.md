@@ -99,17 +99,17 @@ Argo 回源
 
 ### 节点订阅
 
-页面名为 `节点订阅`。订阅链接按以下次序输出：自适应订阅、Base64 订阅、Clash/Mihomo 订阅、Sing-box 订阅、原始节点链接。所有 URL 为亮白下划线；自动适配 QR 唯一保留，不为每个节点或其它订阅重复输出。
+页面名为 `节点订阅`。订阅链接按以下次序输出：订阅面板、自适应订阅、原始节点链接、Base64 订阅、Clash/Mihomo 订阅、Sing-box 订阅。标签按固定显示宽度对齐，所有 URL 为亮白下划线；自动适配 QR 唯一保留，不为每个节点或其它订阅重复输出。
 
 节点标题使用：
 
 ```text
-[01] Argo-Vl · VLESS · WS /argo-vl
-[02] Argo-Vm · VMess · WS /argo-vm
-[03] Argo-Tr · Trojan · WS /argo-tr
+[01] Argo-Vl
+[02] Argo-Vm
+[03] Argo-Tr
 ```
 
-节点表固定为 `14 / 7 / 18 / 5 / 12` 显示宽度。协议只显示 `VLESS`、`VMess`、`Trojan`；出站只显示 `direct`、`SOCKS5` 或允许时的主机端口，不得暴露 SOCKS5 用户名或密码。
+`af -n` 的节点链接块只显示编号、标签和节点 URI，不显示协议、WS 路径或出站信息。参数配置中的节点表仍固定使用 `14 / 7 / 18 / 5 / 12` 显示宽度；协议只显示 `VLESS`、`VMess`、`Trojan`，出站只显示 `direct`、`SOCKS5` 或允许时的主机端口，不得暴露 SOCKS5 用户名或密码。
 
 ### 服务启停
 
