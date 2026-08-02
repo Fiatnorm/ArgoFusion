@@ -42,7 +42,7 @@
 
 其中协议仅允许 `vless`、`vmess`、`trojan`；SOCKS5 留空表示 direct，否则格式为 `主机:端口:用户名:密码`。标签、WS 路径和本地端口必须全局唯一。改变该格式时必须同时迁移旧文件，不能静默破坏已有节点。
 
-生成文件包括明文节点、Base64、Clash/Mihomo、Clash Provider、sing-box、Shadowrocket 订阅和自动适配订阅 QR。它们是派生数据，应由 `generate_nodes()` 统一重建，不应成为独立配置源。`config/` 与 `data/` 必须保持 `700`，但 `/etc/afs/subscriptions/` 必须为 `755`，否则 Nginx 工作进程无法读取 `alias` 订阅文件而返回 403。Clash/Mihomo 三种 WS 节点必须显式启用 UDP，并使用 Chrome 指纹和 `http/1.1` ALPN；VLESS、VMess 订阅必须保留 XUDP（`packetEncoding=xudp`、`packet-encoding: xudp`、`packet_encoding: "xudp"`）。sing-box TLS 保持核心默认版本协商，WS `headers.Host` 必须是字符串。
+生成文件包括原始节点链接、Base64、Clash/Mihomo、sing-box 与自动适配订阅 QR；活动订阅入口仅保留自适应、Base64、Clash/Mihomo、Sing-box、原始节点链接五类。Clash Provider 与 Shadowrocket 文件仅可作为迁移、快照回滚和卸载清理的废弃文件，不得重新生成或公开路由。派生数据应由 `generate_nodes()` 统一重建，不应成为独立配置源。`config/` 与 `data/` 必须保持 `700`，但 `/etc/afs/subscriptions/` 必须为 `755`，否则 Nginx 工作进程无法读取 `alias` 订阅文件而返回 403。Clash/Mihomo 三种 WS 节点必须显式启用 UDP，并使用 Chrome 指纹和 `http/1.1` ALPN；VLESS、VMess 订阅必须保留 XUDP（`packetEncoding=xudp`、`packet-encoding: xudp`、`packet_encoding: "xudp"`）。sing-box TLS 保持核心默认版本协商，WS `headers.Host` 必须是字符串。
 
 ## 关键函数职责
 
@@ -52,7 +52,7 @@
 - `write_nginx_config()`：生成本地 WS 反代和 UUID 订阅入口，并执行 `nginx -t`。
 - `write_services()`：只写项目专属 systemd unit；包含 Token 的文件必须仅 root 可读。
 - `generate_nodes()`：从环境配置和 `nodes.conf` 生成全部节点及订阅文件。
-- `apply_runtime_config()`：配置修改事务；验证失败必须恢复快照。
+- `apply_runtime_config()`：配置修改事务；验证失败必须恢复快照。核心切换模式只重启并验证 Nginx 与选中核心，避免 Argo Tunnel 的无关状态触发回滚。
 - `sync_versions()`：核心版本比较、确认、暂存、校验、原子替换和失败回滚。
 - `backup_project()` / `restore_project()`：仅归档与恢复节点配置 `nodes.conf`；解压前必须拒绝路径穿越、符号链接和特殊文件，恢复不得替换脚本、核心二进制或整个 `/etc/afs`。
 - `uninstall_project()`：所有权检查后的项目范围卸载，不得扩大删除边界。
@@ -93,7 +93,7 @@
 - 卸载必须检查 `/etc/afs/managed` 所有权标记。
 - 卸载只删除本项目私有核心、服务、Nginx 配置、`af`/`AF` 链接和节点文件。
 - 核心更新必须先比较版本并请求确认。
-- 下载必须包含连接超时、总超时、重试、GitHub 代理回退和 SHA256 校验。
+- 下载必须包含连接超时、总超时、重试、GitHub 反代回退和 SHA256 校验；直连失败后优先使用 `github-proxy.fiatnorm.pp.ua`。
 - 更新流程必须遵循：下载到临时文件 → SHA256 与可执行性校验 → 所选内核配置检查 → 备份 → 原子替换 → 重启验证 → 失败回滚。
 - 不得在脚本或示例文件中加入固定公共 UUID、Token 或未经项目明确指定的公共域名；当前约定的默认优选入口为 `bestcf.cdn.fiatnorm.us.kg:443`，且必须允许用户覆盖。
 - 不得嵌入公共 WARP WireGuard 私钥、固定 WARP 账户或非官方 WARP 注册凭据；WARP 使用用户 VPS 上安装的 Cloudflare 官方客户端。

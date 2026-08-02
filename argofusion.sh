@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-VERSION="2.14.13"
+VERSION="2.14.14"
 PROJECT_NAME="ArgoFusion"
 PROJECT_CODE="AFS"
 COMMAND_NAME="af"
@@ -29,9 +29,9 @@ NODES_CONFIG="${CONFIG_DIR}/nodes.conf"
 SUB_FILE="${SUBSCRIPTION_DIR}/subscription.txt"
 SUB_BASE64_FILE="${SUBSCRIPTION_DIR}/subscription.base64"
 SUB_CLASH_FILE="${SUBSCRIPTION_DIR}/subscription.clash.yaml"
-SUB_CLASH_PROVIDER_FILE="${SUBSCRIPTION_DIR}/subscription.proxies.yaml"
 SUB_SING_BOX_FILE="${SUBSCRIPTION_DIR}/subscription.sing-box.json"
 OBSOLETE_SUBSCRIPTION_FILE="${SUBSCRIPTION_DIR}/subscription.shadowrocket"
+OBSOLETE_CLASH_PROVIDER_FILE="${SUBSCRIPTION_DIR}/subscription.proxies.yaml"
 SUB_AUTO_QR_FILE="${SUBSCRIPTION_DIR}/subscription.auto.svg"
 SING_SERVICE="afs-core"
 ARGO_SERVICE="afs-tunnel"
@@ -335,7 +335,7 @@ migrate_project_layout() {
   verify_project_file_relocation "${WORK_DIR}/subscription.txt" "$SUB_FILE"
   verify_project_file_relocation "${WORK_DIR}/subscription.base64" "$SUB_BASE64_FILE"
   verify_project_file_relocation "${WORK_DIR}/subscription.clash.yaml" "$SUB_CLASH_FILE"
-  verify_project_file_relocation "${WORK_DIR}/subscription.proxies.yaml" "$SUB_CLASH_PROVIDER_FILE"
+  verify_project_file_relocation "${WORK_DIR}/subscription.proxies.yaml" "$OBSOLETE_CLASH_PROVIDER_FILE"
   verify_project_file_relocation "${WORK_DIR}/subscription.sing-box.json" "$SUB_SING_BOX_FILE"
   verify_project_file_relocation "${WORK_DIR}/subscription.shadowrocket" "$OBSOLETE_SUBSCRIPTION_FILE"
   verify_project_file_relocation "${WORK_DIR}/subscription.auto.svg" "$SUB_AUTO_QR_FILE"
@@ -356,7 +356,7 @@ migrate_project_layout() {
   relocate_project_file "${WORK_DIR}/subscription.txt" "$SUB_FILE" 644
   relocate_project_file "${WORK_DIR}/subscription.base64" "$SUB_BASE64_FILE" 644
   relocate_project_file "${WORK_DIR}/subscription.clash.yaml" "$SUB_CLASH_FILE" 644
-  relocate_project_file "${WORK_DIR}/subscription.proxies.yaml" "$SUB_CLASH_PROVIDER_FILE" 644
+  relocate_project_file "${WORK_DIR}/subscription.proxies.yaml" "$OBSOLETE_CLASH_PROVIDER_FILE" 644
   relocate_project_file "${WORK_DIR}/subscription.sing-box.json" "$SUB_SING_BOX_FILE" 644
   relocate_project_file "${WORK_DIR}/subscription.shadowrocket" "$OBSOLETE_SUBSCRIPTION_FILE" 644
   relocate_project_file "${WORK_DIR}/subscription.auto.svg" "$SUB_AUTO_QR_FILE" 644
@@ -522,6 +522,7 @@ download() {
   local url="$1" output="$2"
   local candidate
   for candidate in "$url" \
+    "https://github-proxy.fiatnorm.pp.ua/${url}" \
     "https://ghproxy.net/${url}" \
     "https://github.moeyy.xyz/${url}"; do
     if curl -fsSL --retry 3 --retry-all-errors --connect-timeout 10 --max-time 180 \
@@ -532,7 +533,7 @@ download() {
     fi
     rm -f "${output}.part"
   done
-  die "下载失败（已尝试直连和 GitHub 代理）：${url}"
+  die "下载失败（已尝试直连和 GitHub 反代）：${url}"
 }
 
 fetch_latest_installer() {
@@ -975,7 +976,7 @@ EOF
     }
     location = /${UUID}/ {
         default_type text/html;
-        return 200 '<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ArgoFusion 订阅中心</title><style>body{margin:0;background:#fff;color:#172033;font:16px/1.6 system-ui,sans-serif}main{max-width:960px;margin:auto;padding:42px 22px}.e{color:#0969da;font-size:12px;font-weight:800;letter-spacing:.12em}h1{margin:4px 0;color:#0969da;font-size:36px}h2{margin:36px 0 12px;font-size:20px}p,small{color:#5f6f89}a{color:#0757c7;text-decoration:none}.q{display:flex;gap:24px;align-items:center;padding:22px;border:1px solid #d8e3f5;border-radius:12px;background:#f5f9ff}.q img{display:block;width:156px;height:156px;padding:8px;background:#fff;border:1px solid #d8e3f5;border-radius:8px}.q b{font-size:22px}.g{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.i{min-height:84px;padding:16px;border:1px solid #d8e3f5;border-radius:8px;font-weight:700}.i:hover{text-decoration:underline}.i small{display:block;margin-top:8px;font-weight:400}@media(max-width:650px){main{padding:28px 16px}.q{display:block}.q img{margin-bottom:14px}.g{grid-template-columns:1fr}}</style><main><p class=e>ARGO FUSION</p><h1>订阅中心</h1><p>推荐自动适配；指定格式请在下方选择。</p><section class=q><a href=auto><img src=auto-qr.svg alt="自动适配订阅 QR"></a><div><b>推荐 · 自动适配</b><p>扫码或打开链接，自动匹配客户端。</p><a href=auto>打开订阅 →</a></div></section><h2>指定格式订阅</h2><div class=g><a class=i href=raw>原始订阅<small>逐行节点链接</small></a><a class=i href=base64>Base64 通用订阅<small>V2rayN、NekoBox、Shadowrocket</small></a><a class=i href=clash>Clash/Mihomo<small>完整 YAML 配置</small></a><a class=i href=proxies>Clash Provider<small>仅代理节点</small></a><a class=i href=sing-box>sing-box<small>JSON 出站配置</small></a></div></main>';
+        return 200 '<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ArgoFusion 订阅中心</title><style>body{margin:0;background:#f6f9ff;color:#172033;font:16px/1.6 system-ui,sans-serif}main{max-width:880px;margin:auto;padding:48px 20px}.ey{color:#0969da;font-size:12px;font-weight:800;letter-spacing:.14em}h1{margin:3px 0 4px;color:#0757c7;font-size:34px}p,small{color:#60708a}.hero,.card{border:1px solid #d5e3f7;border-radius:14px;background:#fff;box-shadow:0 8px 24px #1d5fa012}.hero{display:grid;grid-template-columns:166px 1fr;gap:25px;align-items:center;margin:28px 0 36px;padding:24px}.hero img{display:block;width:146px;height:146px;padding:9px;border:1px solid #d5e3f7;border-radius:10px}.hero b{color:#0757c7;font-size:22px}.open{display:inline-block;margin-top:8px;padding:8px 14px;border-radius:8px;background:#0969da;color:#fff;text-decoration:none;font-weight:700}.head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px}.head h2{margin:0;color:#0757c7;font-size:20px}.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}.card{padding:18px;color:#0757c7;text-decoration:none;font-weight:800}.card:hover{border-color:#0969da;transform:translateY(-2px)}.card small{display:block;margin-top:8px;font-weight:400}@media(max-width:560px){main{padding:30px 15px}.hero{grid-template-columns:1fr;padding:20px}.hero img{margin:auto}.grid{grid-template-columns:1fr}}</style><main><p class=ey>ARGO FUSION</p><h1>订阅中心</h1><p>选择适合客户端的订阅方式。</p><section class=hero><a href=auto><img src=auto-qr.svg alt="自适应订阅 QR"></a><div><b>自适应订阅</b><p>推荐使用。扫码或打开链接，自动匹配客户端格式。</p><a class=open href=auto>打开自适应订阅</a></div></section><div class=head><h2>指定格式</h2><small>共五类订阅与节点链接</small></div><section class=grid><a class=card href=base64>Base64 订阅<small>V2rayN、NekoBox、Shadowrocket</small></a><a class=card href=clash>Clash/Mihomo 订阅<small>完整 YAML 配置</small></a><a class=card href=sing-box>Sing-box 订阅<small>JSON 出站配置</small></a><a class=card href=raw>原始节点链接<small>逐行 vless、vmess、trojan</small></a></section></main>';
     }
     location = /${UUID}/auto-qr.svg {
         default_type image/svg+xml;
@@ -996,10 +997,6 @@ EOF
     location = /${UUID}/clash {
         default_type text/yaml;
         alias ${SUB_CLASH_FILE};
-    }
-    location = /${UUID}/proxies {
-        default_type text/yaml;
-        alias ${SUB_CLASH_PROVIDER_FILE};
     }
     location = /${UUID}/sing-box {
         default_type application/json;
@@ -1103,10 +1100,10 @@ generate_nodes() {
   chmod 600 "$NODES_FILE"
   install -m 644 "$NODES_FILE" "$SUB_FILE"
   base64 -w 0 "$NODES_FILE" >"$SUB_BASE64_FILE"
-  rm -f -- "$OBSOLETE_SUBSCRIPTION_FILE"
+  rm -f -- "$OBSOLETE_SUBSCRIPTION_FILE" "$OBSOLETE_CLASH_PROVIDER_FILE"
   auto_url="https://${ARGO_DOMAIN}/${UUID}/auto"
   qrencode -t SVG -o "$SUB_AUTO_QR_FILE" "$auto_url"
-  printf 'proxies:\n' >"$SUB_CLASH_PROVIDER_FILE"
+  printf 'proxies:\n' >"$SUB_CLASH_FILE"
   while IFS='|' read -r tag protocol path port socks; do
     case "$protocol" in
       vless) printf '  - {name: "%s", type: vless, server: "%s", port: %s, uuid: %s, encryption: none, udp: true, packet-encoding: xudp, tls: true, servername: %s, client-fingerprint: chrome, alpn: [http/1.1], skip-cert-verify: false, network: ws, ws-opts: {path: "%s", headers: {Host: %s}%s}}\n' \
@@ -1116,8 +1113,7 @@ generate_nodes() {
       trojan) printf '  - {name: "%s", type: trojan, server: "%s", port: %s, password: %s, udp: true, tls: true, sni: %s, client-fingerprint: chrome, alpn: [http/1.1], skip-cert-verify: false, network: ws, ws-opts: {path: "%s", headers: {Host: %s}%s}}\n' \
         "$tag" "$SERVER" "$SERVER_PORT" "$UUID" "$ARGO_DOMAIN" "$path" "$ARGO_DOMAIN" "$clash_early_data" ;;
     esac
-  done <"$NODES_CONFIG" >>"$SUB_CLASH_PROVIDER_FILE"
-  cat "$SUB_CLASH_PROVIDER_FILE" >"$SUB_CLASH_FILE"
+  done <"$NODES_CONFIG" >>"$SUB_CLASH_FILE"
   printf 'proxy-groups:\n  - name: PROXY\n    type: select\n    proxies:\n' >>"$SUB_CLASH_FILE"
   while IFS='|' read -r tag protocol path port socks; do
     printf '      - "%s"\n' "$tag"
@@ -1140,7 +1136,7 @@ generate_nodes() {
   done <"$NODES_CONFIG"
   printf ']}\n' >>"$SUB_SING_BOX_FILE"
   chmod 644 "$SUB_BASE64_FILE"
-  chmod 644 "$SUB_CLASH_FILE" "$SUB_CLASH_PROVIDER_FILE" "$SUB_SING_BOX_FILE" \
+  chmod 644 "$SUB_CLASH_FILE" "$SUB_SING_BOX_FILE" \
     "$SUB_AUTO_QR_FILE"
   umask "$old_umask"
 }
@@ -1185,15 +1181,27 @@ sync_argo_domain() {
 
 wait_for_services() {
   local attempt service ready
+  local services=("$@")
+  ((${#services[@]})) || services=(nginx "$SING_SERVICE" "$ARGO_SERVICE")
   for attempt in {1..20}; do
     ready=1
-    for service in nginx "$SING_SERVICE" "$ARGO_SERVICE"; do
+    for service in "${services[@]}"; do
       systemctl is-active --quiet "$service" || ready=0
     done
     [[ "$ready" -eq 1 ]] && return 0
     sleep 1
   done
   return 1
+}
+
+report_runtime_config_failure() {
+  local service
+  for service in "$@"; do
+    systemctl is-active --quiet "$service" && continue
+    red "${service}：重启后未运行。"
+    systemctl --no-pager --full status "$service" || true
+    journalctl -u "$service" -n 20 --no-pager -o cat 2>/dev/null || true
+  done
 }
 
 health_check() {
@@ -1623,24 +1631,31 @@ begin_config_change() {
   cp -a "$ENV_FILE" "$NODES_CONFIG" "$SING_BOX_CONFIG" "$XRAY_CONFIG" "$NGINX_CONFIG" \
     "/etc/systemd/system/${SING_SERVICE}.service" "/etc/systemd/system/${ARGO_SERVICE}.service" \
     "$NODES_FILE" "$SUB_FILE" "$SUB_BASE64_FILE" "$SUB_CLASH_FILE" \
-    "$SUB_CLASH_PROVIDER_FILE" "$SUB_SING_BOX_FILE" "$OBSOLETE_SUBSCRIPTION_FILE" \
+    "$OBSOLETE_CLASH_PROVIDER_FILE" "$SUB_SING_BOX_FILE" "$OBSOLETE_SUBSCRIPTION_FILE" \
     "$SUB_AUTO_QR_FILE" \
     "$CONFIG_SNAPSHOT/" 2>/dev/null || true
 }
 
 apply_runtime_config() {
-  local snapshot="${CONFIG_SNAPSHOT:-}"
+  local snapshot="${CONFIG_SNAPSHOT:-}" mode="${1:-all}"
+  local services=()
   [[ -n "$snapshot" && -d "$snapshot" ]] || die "缺少配置事务快照。"
+  case "$mode" in
+    all) services=(nginx "$SING_SERVICE" "$ARGO_SERVICE") ;;
+    core-switch) services=(nginx "$SING_SERVICE") ;;
+    *) die "未知配置应用模式：${mode}" ;;
+  esac
   info "正在应用配置并重启服务..."
   if save_env && write_available_core_configs && write_nginx_config && write_services &&
     generate_nodes &&
     systemctl daemon-reload &&
-    systemctl restart nginx "$SING_SERVICE" "$ARGO_SERVICE" && wait_for_services; then
+    systemctl restart "${services[@]}" && wait_for_services "${services[@]}"; then
     rm -rf "$snapshot"
     green "配置已生效。"
     return 0
   fi
   red "配置验证失败，正在恢复。"
+  report_runtime_config_failure "${services[@]}"
   [[ -f "$snapshot/argofusion.env" ]] && install -m 600 "$snapshot/argofusion.env" "$ENV_FILE"
   [[ -f "$snapshot/nodes.conf" ]] && install -m 600 "$snapshot/nodes.conf" "$NODES_CONFIG"
   [[ -f "$snapshot/sing-box.json" ]] && install -m 600 "$snapshot/sing-box.json" "$SING_BOX_CONFIG"
@@ -1649,12 +1664,12 @@ apply_runtime_config() {
   [[ -f "$snapshot/${SING_SERVICE}.service" ]] && install -m 600 "$snapshot/${SING_SERVICE}.service" "/etc/systemd/system/${SING_SERVICE}.service"
   [[ -f "$snapshot/${ARGO_SERVICE}.service" ]] && install -m 600 "$snapshot/${ARGO_SERVICE}.service" "/etc/systemd/system/${ARGO_SERVICE}.service"
   rm -f "$NODES_FILE" "$SUB_FILE" "$SUB_BASE64_FILE" "$SUB_CLASH_FILE" \
-    "$SUB_CLASH_PROVIDER_FILE" "$SUB_SING_BOX_FILE" "$OBSOLETE_SUBSCRIPTION_FILE" "$SUB_AUTO_QR_FILE"
+    "$OBSOLETE_CLASH_PROVIDER_FILE" "$SUB_SING_BOX_FILE" "$OBSOLETE_SUBSCRIPTION_FILE" "$SUB_AUTO_QR_FILE"
   [[ -f "$snapshot/$(basename "$NODES_FILE")" ]] && install -m 600 "$snapshot/$(basename "$NODES_FILE")" "$NODES_FILE"
   [[ -f "$snapshot/$(basename "$SUB_FILE")" ]] && install -m 644 "$snapshot/$(basename "$SUB_FILE")" "$SUB_FILE"
   [[ -f "$snapshot/$(basename "$SUB_BASE64_FILE")" ]] && install -m 644 "$snapshot/$(basename "$SUB_BASE64_FILE")" "$SUB_BASE64_FILE"
   [[ -f "$snapshot/$(basename "$SUB_CLASH_FILE")" ]] && install -m 644 "$snapshot/$(basename "$SUB_CLASH_FILE")" "$SUB_CLASH_FILE"
-  [[ -f "$snapshot/$(basename "$SUB_CLASH_PROVIDER_FILE")" ]] && install -m 644 "$snapshot/$(basename "$SUB_CLASH_PROVIDER_FILE")" "$SUB_CLASH_PROVIDER_FILE"
+  [[ -f "$snapshot/$(basename "$OBSOLETE_CLASH_PROVIDER_FILE")" ]] && install -m 644 "$snapshot/$(basename "$OBSOLETE_CLASH_PROVIDER_FILE")" "$OBSOLETE_CLASH_PROVIDER_FILE"
   [[ -f "$snapshot/$(basename "$SUB_SING_BOX_FILE")" ]] && install -m 644 "$snapshot/$(basename "$SUB_SING_BOX_FILE")" "$SUB_SING_BOX_FILE"
   [[ -f "$snapshot/$(basename "$OBSOLETE_SUBSCRIPTION_FILE")" ]] && install -m 644 "$snapshot/$(basename "$OBSOLETE_SUBSCRIPTION_FILE")" "$OBSOLETE_SUBSCRIPTION_FILE"
   [[ -f "$snapshot/$(basename "$SUB_AUTO_QR_FILE")" ]] && install -m 644 "$snapshot/$(basename "$SUB_AUTO_QR_FILE")" "$SUB_AUTO_QR_FILE"
@@ -1897,7 +1912,7 @@ switch_proxy_core() {
   ensure_core_binary "$requested"
   begin_config_change
   CORE="$requested"
-  apply_runtime_config
+  apply_runtime_config core-switch
   green "已切换到 $(core_label)，两套核心配置均已保留。"
 }
 
@@ -2238,13 +2253,11 @@ show_nodes() {
   brand "${PROJECT_NAME} · 节点订阅"
   UI_TIGHT_SECTION=1
   subsection "订阅链接"
-  link_value "订阅首页" "https://${ARGO_DOMAIN}/${UUID}/"
-  link_value "自动适配" "$auto_url"
-  link_value "原始订阅" "https://${ARGO_DOMAIN}/${UUID}/raw"
-  link_value "Base64" "https://${ARGO_DOMAIN}/${UUID}/base64"
-  link_value "Clash" "https://${ARGO_DOMAIN}/${UUID}/clash"
-  link_value "Provider" "https://${ARGO_DOMAIN}/${UUID}/proxies"
-  link_value "Sing-box" "https://${ARGO_DOMAIN}/${UUID}/sing-box"
+  link_value "自适应订阅" "$auto_url"
+  link_value "Base64 订阅" "https://${ARGO_DOMAIN}/${UUID}/base64"
+  link_value "Clash/Mihomo 订阅" "https://${ARGO_DOMAIN}/${UUID}/clash"
+  link_value "Sing-box 订阅" "https://${ARGO_DOMAIN}/${UUID}/sing-box"
+  link_value "原始节点链接" "https://${ARGO_DOMAIN}/${UUID}/raw"
   if command -v qrencode >/dev/null 2>&1; then
     section "自动适配 QR"
     qrencode -t ANSIUTF8 "$auto_url"
@@ -2480,7 +2493,7 @@ uninstall_project() {
   done
   remove_legacy_symlink
   rm -f "$ENV_FILE" "$NODES_CONFIG" "$SING_BOX_CONFIG" "$XRAY_CONFIG" "$LOCAL_SCRIPT" "$MANAGED_FILE" \
-    "$SUB_FILE" "$SUB_BASE64_FILE" "$SUB_CLASH_FILE" "$SUB_CLASH_PROVIDER_FILE" \
+    "$SUB_FILE" "$SUB_BASE64_FILE" "$SUB_CLASH_FILE" "$OBSOLETE_CLASH_PROVIDER_FILE" \
     "$SUB_SING_BOX_FILE" "$OBSOLETE_SUBSCRIPTION_FILE" "$SUB_AUTO_QR_FILE" \
     "$BIN_DIR/sing-box" "$BIN_DIR/xray" "$BIN_DIR/cloudflared"
   rm -rf "$BACKUP_DIR"

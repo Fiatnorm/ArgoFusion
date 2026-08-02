@@ -1,4 +1,4 @@
-# ArgoFusion · AFS v2.14.13
+# ArgoFusion · AFS v2.14.14
 
 面向固定 Argo Token 隧道的中文轻量安装脚本，提供：
 
@@ -6,7 +6,7 @@
 - VMess + WS + TLS：`/argo-vm`
 - Trojan + WS + TLS：`/argo-tr`
 - 安装及 `af -p` 均可切换 Sing-box / Xray 内核，三种 WS 节点、订阅与 Argo 接口保持一致
-- 原始订阅、Base64 通用订阅、Clash/Mihomo、Clash Provider、sing-box，以及终端和网页自动适配订阅 QR
+- 自适应订阅、Base64 订阅、Clash/Mihomo 订阅、Sing-box 订阅、原始节点链接五类入口
 
 TLS 由 Cloudflare 边缘终止；VPS 本机 Nginx 与所选代理内核仅监听回环地址。固定隧道必须在 Cloudflare Zero Trust 添加 Public Hostname，Service 指向 `http://localhost:3010`。Public Hostname 域名必须由安装者输入；Cloudflare 优选入口默认使用 `bestcf.cdn.fiatnorm.us.kg:443`，也可在安装或配置时修改。
 
@@ -45,6 +45,8 @@ sudo ./argofusion.sh -i
 升级时仅在旧目录存在 `managed` 所有权标记且 `/etc/afs` 不存在时迁移；`/etc/argofusion` 与 `/etc/asb` 若同时为真实目录，或任一旧目录缺少所有权标记，脚本会停止并要求人工核对。迁移会临时保留旧目录到 `/etc/afs` 的兼容链接；新服务验证通过后才移除旧服务和兼容链接，失败则恢复旧服务。
 
 迁移会先停止旧服务并等待节点端口释放，再启动新服务；若新服务启动失败，会先停用新服务再恢复旧服务，避免两套 sing-box 同时抢占节点端口。重新执行 v2.8.2 安装可修复旧版迁移失败后形成的新旧服务端口冲突。
+
+v2.14.14 将订阅入口收敛为自适应、Base64、Clash/Mihomo、Sing-box、原始节点链接五类，停止生成和公开 Clash Provider；订阅中心以白底蓝色卡片重新排版，并保留唯一的自适应 QR。`af -p` 的核心切换只重启并验证 Nginx 与目标代理核心，不再因无关的 Argo Tunnel 瞬时状态回滚；实际失败时会输出对应服务状态和最近日志。GitHub 下载直连失败时优先回退到 `github-proxy.fiatnorm.pp.ua`。
 
 v2.14.13 按 `ArgoFusion_AFS_v2.14.12_TERMINAL_UI_DESIGN_v3.md` 重排终端 UI：主菜单统一为“节点订阅、服务启停、核心切换、参数配置、服务重启、运行诊断、项目安装、组件更新、备份恢复、BBR / DD、项目卸载”；状态区固定为 Argo Tunnel、代理核心、WARP、域名、优选入口、Argo 回源与版本；分区使用亮蓝、键名使用亮青，输入提示去除冗余“操作提示：”前缀。`af -n` 同步使用 VLESS、VMess、Trojan 的正确展示大小写。
 
@@ -137,7 +139,7 @@ v2.12.2 将首次安装和缺省环境配置中的 Cloudflare 优选入口统一
 v2.12.1 在 v2.12.0 的 UI 收敛基础上补强配置事务：派生节点/订阅文件纳入回滚快照，订阅生成或服务验证失败时恢复完整运行面，并集中校验已有环境文件；状态行对 IPv6 优选入口统一显示为 `[地址]:端口`。同时保持 64 列分隔线、白色下划线 URL、唯一自动适配 QR 和节点专用备份边界不变。
 v2.12.0 配置文件索引改为白色下划线 URL，不再输出整行链接分隔线；所有页面的分隔线后一级小标题均紧贴显示。Argo 回源地址保持白色，本机公网 IP 与优选入口 IP 保持亮紫色。
 
-下载具有总超时、重试、GitHub 代理回退和 GitHub Release SHA256 digest 校验；二进制还会执行基本版本检查。Sing-box 版本优先采用上游 `force_version`，不可用时回退到 GitHub releases，再失败才使用脚本预设版本；Xray 从 `XTLS/Xray-core` 官方 Release 查询与校验。
+下载具有总超时、重试、GitHub 反代回退和 GitHub Release SHA256 digest 校验；直连失败时优先使用 `github-proxy.fiatnorm.pp.ua`，随后才尝试其他反代。二进制还会执行基本版本检查。Sing-box 版本优先采用上游 `force_version`，不可用时回退到 GitHub releases，再失败才使用脚本预设版本；Xray 从 `XTLS/Xray-core` 官方 Release 查询与校验。
 
 首次安装使用经过项目确认的 Sing-box `1.13.0-rc.4` 与 Xray `26.7.11`，避免安装时因远端版本变化产生不一致；cloudflared 首次安装按原版 SBA 逻辑使用 GitHub latest。后续执行 `af -v` 时，脚本只查询和更新当前选择的代理内核。
 
@@ -263,18 +265,17 @@ WARP 只覆盖匹配的网址，不会替换其他节点的 SOCKS5 配置。`af 
 
 ## 节点、订阅和检查
 
-`af -n` 输出配置文件索引、自动适配订阅 QR 和全部原始节点链接。浏览器访问 `https://你的域名/你的UUID/` 可进入白底蓝字订阅中心，扫描同一自动适配订阅 QR，或打开不同客户端配置：
+`af -n` 输出自适应、Base64、Clash/Mihomo、Sing-box、原始节点链接五类入口、自动适配订阅 QR 和全部原始节点链接。浏览器访问 `https://你的域名/你的UUID/` 可进入白底蓝字订阅中心，扫描同一自动适配订阅 QR，或打开不同客户端配置：
 
 ```text
 https://你的域名/你的UUID/auto
-https://你的域名/你的UUID/raw
 https://你的域名/你的UUID/base64
 https://你的域名/你的UUID/clash
-https://你的域名/你的UUID/proxies
 https://你的域名/你的UUID/sing-box
+https://你的域名/你的UUID/raw
 ```
 
-`/你的UUID` 会跳转到文件索引；索引 HTML 由 Nginx 直接返回，避免目录 URL 使用文件 `alias` 导致 500。`/auto` 根据 User-Agent 为 Clash/Mihomo 与 sing-box 返回对应格式，其他客户端（包括 Shadowrocket）返回 Base64 通用订阅。`/raw`（原始订阅）以及 `/etc/afs/data/nodes.txt` 保留逐行明文 `vless://`、`vmess://`、`trojan://` 节点协议。旧的 `/argofusion-sub` 与 `/argofusion-sub-base64` 入口继续可用。
+`/你的UUID` 会跳转到文件索引；索引 HTML 由 Nginx 直接返回，避免目录 URL 使用文件 `alias` 导致 500。`/auto` 根据 User-Agent 为 Clash/Mihomo 与 sing-box 返回对应格式，其他客户端（包括 Shadowrocket）返回 Base64 通用订阅。`/raw`（原始节点链接）以及 `/etc/afs/data/nodes.txt` 保留逐行明文 `vless://`、`vmess://`、`trojan://` 节点协议；不再生成或公开 Clash Provider。旧的 `/argofusion-sub` 与 `/argofusion-sub-base64` 入口继续可用。
 
 网页自动适配订阅 QR 由 `generate_nodes()` 生成，并通过订阅面板的 `/你的UUID/auto-qr.svg` 资源展示；终端仅输出这一张自动适配 QR，不为明文节点或其他独立配置重复生成二维码。
 
