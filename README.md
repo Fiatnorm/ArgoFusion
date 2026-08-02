@@ -1,4 +1,4 @@
-# ArgoFusion · AFS v2.14.12
+# ArgoFusion · AFS v2.14.13
 
 面向固定 Argo Token 隧道的中文轻量安装脚本，提供：
 
@@ -23,7 +23,7 @@ chmod +x argofusion.sh
 sudo ./argofusion.sh -i
 ```
 
-安装时输入 Argo Token、Public Hostname，并以一行 `域名/IP:端口` 的形式输入 Cloudflare 优选入口，默认值为 `bestcf.cdn.fiatnorm.us.kg:443`。IPv6 使用 `[2001:db8::1]:443`。最后选择 `1` 使用默认 Sing-box，或选择 `2` 使用 Xray；安装后可在 `af` 主面板的“切换代理核心”随时切换，原有节点、订阅地址和 Argo 配置不变。
+安装时输入 Argo Token、Public Hostname，并以一行 `域名/IP:端口` 的形式输入 Cloudflare 优选入口，默认值为 `bestcf.cdn.fiatnorm.us.kg:443`。IPv6 使用 `[2001:db8::1]:443`。最后选择 `1` 使用默认 Sing-box，或选择 `2` 使用 Xray；安装后可在 `af` 主面板的“核心切换”随时切换，原有节点、订阅地址和 Argo 配置不变。
 
 核心安装在项目私有目录：
 
@@ -45,6 +45,8 @@ sudo ./argofusion.sh -i
 升级时仅在旧目录存在 `managed` 所有权标记且 `/etc/afs` 不存在时迁移；`/etc/argofusion` 与 `/etc/asb` 若同时为真实目录，或任一旧目录缺少所有权标记，脚本会停止并要求人工核对。迁移会临时保留旧目录到 `/etc/afs` 的兼容链接；新服务验证通过后才移除旧服务和兼容链接，失败则恢复旧服务。
 
 迁移会先停止旧服务并等待节点端口释放，再启动新服务；若新服务启动失败，会先停用新服务再恢复旧服务，避免两套 sing-box 同时抢占节点端口。重新执行 v2.8.2 安装可修复旧版迁移失败后形成的新旧服务端口冲突。
+
+v2.14.13 按 `ArgoFusion_AFS_v2.14.12_TERMINAL_UI_DESIGN_v3.md` 重排终端 UI：主菜单统一为“节点订阅、服务启停、核心切换、参数配置、服务重启、运行诊断、项目安装、组件更新、备份恢复、BBR / DD、项目卸载”；状态区固定为 Argo Tunnel、代理核心、WARP、域名、优选入口、Argo 回源与版本；分区使用亮蓝、键名使用亮青，输入提示去除冗余“操作提示：”前缀。`af -n` 同步使用 VLESS、VMess、Trojan 的正确展示大小写。
 
 v2.14.12 精简终端与订阅中心文案：主面板统一使用“节点与订阅、配置管理、重启服务、运行诊断”等短名称；安装方式、服务开关、组件更新和订阅入口同步采用清晰一致的提示语，快捷命令与功能不变。
 
@@ -177,8 +179,8 @@ sudo ./argofusion.sh -i
 | `sudo AF` | 与 `sudo af` 完全等价 |
 | `sudo af -i` | 选择使用 VPS 本地脚本重装，或从 GitHub 获取最新脚本后安装 |
 | `sudo af -n` | 显示全部节点、所有订阅地址及一张自动适配订阅 QR |
-| `sudo af -a` | 打开服务管理，切换 Argo Tunnel 或代理核心状态 |
-| `sudo af -p` | 切换 Sing-box / Xray 代理核心 |
+| `sudo af -a` | 打开服务启停，切换 Argo Tunnel 或代理核心状态 |
+| `sudo af -p` | 打开核心切换，切换 Sing-box / Xray 代理核心 |
 | `sudo af -c` | 修改 Token、域名、优选入口、端口、UUID、节点、SOCKS5 与 WARP 域名 |
 | `sudo af -r` | 重启 Nginx、当前代理内核和 Argo 服务 |
 | `sudo af -x` | 执行运行诊断、WS 检查并显示最近日志 |
@@ -194,27 +196,27 @@ sudo ./argofusion.sh -i
 ## 菜单
 
 ```text
-1. 节点与订阅 (af -n)
-2. 服务管理 (af -a)
-3. 切换代理核心 (af -p)
-4. 配置管理 (af -c)
-5. 重启服务 (af -r)
+1. 节点订阅 (af -n)
+2. 服务启停 (af -a)
+3. 核心切换 (af -p)
+4. 参数配置 (af -c)
+5. 服务重启 (af -r)
 6. 运行诊断 (af -x)
-7. 安装 / 更新 ArgoFusion (af -i)
-8. 更新 Argo / 当前代理内核 (af -v)
-9. 节点备份与恢复 (af -k)
-10. 第三方 BBR / DD (af -b)
-11. 卸载 ArgoFusion (af -u)
-0. 退出
+7. 项目安装 (af -i)
+8. 组件更新 (af -v)
+9. 备份恢复 (af -k)
+10. BBR / DD (af -b)
+11. 项目卸载 (af -u)
+0. 退出脚本
 ```
 
-## 配置管理与分流
+## 参数配置与分流
 
 `af -c` 用于修改 Token、Argo 域名、优选入口、Argo Tunnel 回源端口和全局 UUID，也可以添加、修改或删除 VLESS、VMess、Trojan 的 WS + TLS 节点。修改 Tunnel 回源端口时，节点监听端口从“回源端口 + 1”开始依次顺延；添加节点时默认使用当前最大监听端口的下一个端口。配置保存在 `/etc/afs/config/nodes.conf`。修改后还必须在 Cloudflare Public Hostname 中把 Service 同步为新的 `http://localhost:端口`。
 
 ### 切换 Sing-box / Xray
 
-在 `af` 主面板选择“切换代理核心”，输入 `1` 为 Sing-box、`2` 为 Xray。两种核心共用 `/etc/afs/config/argofusion.env`、`/etc/afs/config/nodes.conf`、Nginx、Argo Tunnel 和订阅文件；`/etc/afs/config/sing-box.json` 与 `/etc/afs/config/xray.json` 始终分别保留。切换会先检查目标二进制，必要时从官方 Release 下载、校验并原子安装，然后同时重建和校验两套 JSON，最后重启同一个 `afs-core.service`。失败会恢复切换前的环境、运行配置、服务文件和订阅文件。
+在 `af` 主面板选择“核心切换”，输入 `1` 为 Sing-box、`2` 为 Xray。两种核心共用 `/etc/afs/config/argofusion.env`、`/etc/afs/config/nodes.conf`、Nginx、Argo Tunnel 和订阅文件；`/etc/afs/config/sing-box.json` 与 `/etc/afs/config/xray.json` 始终分别保留。切换会先检查目标二进制，必要时从官方 Release 下载、校验并原子安装，然后同时重建和校验两套 JSON，最后重启同一个 `afs-core.service`。失败会恢复切换前的环境、运行配置、服务文件和订阅文件。
 
 添加节点时可留空使用直连，也可输入 SOCKS5 出站：
 
@@ -224,7 +226,7 @@ sudo ./argofusion.sh -i
 
 路由按节点 inbound tag 匹配，因此同一种协议的不同 WS 路径可以使用不同出口。SOCKS5 地址、端口、用户名和密码只写入权限为 `600` 的项目配置；节点分享链接不包含出站凭据。配置变更会重建所有已安装内核的配置并逐一检查、执行 `nginx -t`、重启服务和状态验证，失败时恢复修改前文件。
 
-所有页面标题下都会统一提示：输入 `0` 返回上级，主面板输入 `0` 退出。基础项、节点操作和 WARP 子菜单均保留该行为，返回时不会写入半成品配置。
+主面板、可返回菜单、确认/配置表单和只读页分别显示“输入 `0` 退出脚本”“输入 `0` 返回上级”“输入 `0` 取消操作”和不显示提示。基础项、节点操作和 WARP 子菜单均保留该行为，返回时不会写入半成品配置。
 
 ### 按网址优先使用 WARP
 
@@ -246,7 +248,7 @@ https://chatgpt.com,api.openai.com,example.com
 
 WARP 只覆盖匹配的网址，不会替换其他节点的 SOCKS5 配置。`af -x` 会检查 `warp-svc`、本地代理端口，并通过 WARP 访问第一个目标域名。WARP 不提供匿名保证，也不保证指定国家或地区的落地 IP。
 
-终端输出使用高亮配色：亮蓝字标、亮紫页面标题和输入提示，亮蓝/亮青键名与分区、亮黄色菜单序号和停用状态，亮白承载主要内容，绿/黄/红分别表示成功、警告和错误。订阅链接使用亮白下划线。主面板、可返回菜单、可取消表单和只读页面分别显示对应的 `0` 提示；普通返回不额外输出提示。菜单、诊断、节点订阅与表格统一采用内容块布局：区块之间保留一行，区块内部保持紧凑。分隔线统一为 64 列 ASCII `-`，节点表按 14/7/18/5/12 显示宽度对齐且不显示 SOCKS5 用户名和密码；IPv6 优选入口在状态行中显示为 `[地址]:端口`；重定向输出、`TERM=dumb` 或设置 `NO_COLOR=1` 时自动关闭全部颜色和文本装饰。
+终端输出使用高亮配色：亮青字标和键名、亮紫页面标题和输入提示、亮蓝分区与分隔线、亮黄色菜单序号和停用状态，亮白承载主要内容，绿/黄/红分别表示成功、警告和错误。订阅链接使用亮白下划线。主面板、可返回菜单、可取消表单和只读页面分别显示对应的 `0` 提示；普通返回不额外输出提示。菜单、诊断、节点订阅与表格统一采用内容块布局：区块之间保留一行，区块内部保持紧凑。分隔线统一为 64 列 ASCII `-`，节点表按 14/7/18/5/12 显示宽度对齐且不显示 SOCKS5 用户名和密码；IPv6 优选入口在状态行中显示为 `[地址]:端口`；重定向输出、`TERM=dumb` 或设置 `NO_COLOR=1` 时自动关闭全部颜色和文本装饰。
 
 ## 诊断、备份与恢复
 

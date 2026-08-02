@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-VERSION="2.14.12"
+VERSION="2.14.13"
 PROJECT_NAME="ArgoFusion"
 PROJECT_CODE="AFS"
 COMMAND_NAME="af"
@@ -89,14 +89,14 @@ pad_right() {
 ui_page() {
   local title="$1" mode="${2:-none}" hint=""
   case "$mode" in
-    main) hint="输入 0 退出。" ;;
+    main) hint="输入 0 退出脚本。" ;;
     back) hint="输入 0 返回上级。" ;;
-    cancel) hint="输入 0 取消本次操作。" ;;
+    cancel) hint="输入 0 取消操作。" ;;
     none) ;;
     *) die "未知页面提示模式：${mode}" ;;
   esac
   printf '\n%s%s◆ %s%s\n' "$C_BOLD" "$C_BRIGHT_MAGENTA" "$title" "$C_RESET"
-  [[ -z "$hint" ]] || printf '%s  操作提示：%s%s%s\n' \
+  [[ -z "$hint" ]] || printf '%s  %s%s%s\n' \
     "$C_BRIGHT_CYAN" "$C_BRIGHT_WHITE" "$hint" "$C_RESET"
   ui_line
 }
@@ -120,7 +120,7 @@ system_summary() {
   printf '%s · %s · IP %s%s%s' "$os" "$arch" "$C_BRIGHT_MAGENTA" "${ip:-未知}" "$C_RESET"
 }
 control_panel() {
-  printf '\n%s%s' "$C_BOLD" "$C_BRIGHT_BLUE"
+  printf '\n%s%s' "$C_BOLD" "$C_BRIGHT_CYAN"
   printf '%s\n' '    ___                     _____ _             __'
   printf '%s\n' '   /   |  _________ _____  / ___/(_)___  ____ _/ /_  ____  _  __'
   printf '%s\n' '  / /| | / ___/ __ `/ __ \ \__ \/ / __ \/ __ `/ __ \/ __ \| |/_/'
@@ -137,7 +137,7 @@ control_panel() {
   UI_TIGHT_SECTION=1
 }
 control_panel() {
-  printf '\n%s%s' "$C_BOLD" "$C_BRIGHT_BLUE"
+  printf '\n%s%s' "$C_BOLD" "$C_BRIGHT_CYAN"
   printf '%s\n' '    ___                     ______           _'
   printf '%s\n' '   /   |  _________  ____  / ____/_  _______(_)___  ____'
   printf '%s\n' '  / /| | / ___/ __ \/ __ \/ /_  / / / / ___/ / __ \/ __ \'
@@ -186,16 +186,16 @@ section() {
     printf '\n'
   fi
   UI_LAST_WAS_LINE=0
-  printf '%s%s▸ %s%s\n' "$C_BOLD" "$C_BRIGHT_CYAN" "$*" "$C_RESET"
+  printf '%s%s▸ %s%s\n' "$C_BOLD" "$C_BRIGHT_BLUE" "$*" "$C_RESET"
 }
 subsection() { section "$*"; }
 key_value() {
-  printf '%s' "$C_BRIGHT_BLUE"
+  printf '%s' "$C_BRIGHT_CYAN"
   pad_right "$1" 13
   printf '%s  %s%s%s\n' "$C_RESET" "$C_BRIGHT_WHITE" "$2" "$C_RESET"
 }
 ip_value() {
-  printf '%s' "$C_BRIGHT_BLUE"
+  printf '%s' "$C_BRIGHT_CYAN"
   pad_right "$1" 13
   printf '%s  %s%s%s\n' "$C_RESET" "$C_BRIGHT_MAGENTA" "$2" "$C_RESET"
 }
@@ -203,7 +203,7 @@ endpoint_value() {
   local label="$1" host="$2" port="$3" color="$C_BRIGHT_WHITE" display_host="$2"
   [[ "$host" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ || "$host" =~ ^[0-9A-Fa-f:]+$ ]] && color="$C_BRIGHT_MAGENTA"
   [[ "$host" == *:* && "$host" != \[*\] ]] && display_host="[${host}]"
-  printf '%s' "$C_BRIGHT_BLUE"
+  printf '%s' "$C_BRIGHT_CYAN"
   pad_right "$label" 13
   printf '%s  %s%s:%s%s\n' "$C_RESET" "$color" "$display_host" "$port" "$C_RESET"
 }
@@ -214,7 +214,7 @@ state_value() {
     未启用|已停止|未安装) color="$C_BRIGHT_YELLOW" ;;
     *异常*) color="$C_BRIGHT_RED" ;;
   esac
-  printf '%s' "$C_BRIGHT_BLUE"
+  printf '%s' "$C_BRIGHT_CYAN"
   pad_right "$1" 13
   if [[ "$1" == "代理核心" && "$value" =~ ^([^·]+)[[:space:]]·[[:space:]](.*)$ ]]; then
     printf '%s  %s%s%s %s·%s %s%s%s\n' "$C_RESET" "$C_BRIGHT_MAGENTA" \
@@ -228,7 +228,7 @@ state_value() {
   fi
 }
 link_value() {
-  printf '%s' "$C_BRIGHT_BLUE"
+  printf '%s' "$C_BRIGHT_CYAN"
   pad_right "$1" 14
   printf '%s  %s%s%s%s\n' "$C_RESET" "$C_BRIGHT_WHITE" "$C_UNDERLINE" "$2" "$C_RESET"
 }
@@ -246,12 +246,20 @@ return_notice() { :; }
 cancel_config_change() {
   [[ -n "${CONFIG_SNAPSHOT:-}" && -d "$CONFIG_SNAPSHOT" ]] && rm -rf "$CONFIG_SNAPSHOT"
   unset CONFIG_SNAPSHOT
-  yellow "已取消本次修改，配置未变更。"
+  yellow "已取消修改，配置未变更。"
 }
 menu_item() {
   printf '  %s%2s%s  %s' "$C_BRIGHT_YELLOW" "$1" "$C_RESET" "$C_BRIGHT_WHITE"
-  pad_right "$2" 36
+  pad_right "$2" 28
   printf '%s%s%s%s\n' "$C_RESET" "$C_BRIGHT_CYAN" "${3:+[$3]}" "$C_RESET"
+}
+protocol_label() {
+  case "$1" in
+    vless) printf 'VLESS' ;;
+    vmess) printf 'VMess' ;;
+    trojan) printf 'Trojan' ;;
+    *) printf '%s' "$1" ;;
+  esac
 }
 die() { red "$*"; exit 1; }
 
@@ -1189,19 +1197,23 @@ wait_for_services() {
 }
 
 health_check() {
-  local failed=0 public_code public_headers curl_status port path tag protocol socks
+  local failed=0 public_code public_headers curl_status port path tag protocol socks mode="${1:-full}"
   ensure_nodes_config
-  section "运行检查"
-  for service in nginx "$SING_SERVICE" "$ARGO_SERVICE"; do
-    if systemctl is-active --quiet "$service"; then
-      green "${service}：运行正常"
-    else
-      red "${service}：运行失败"
-      systemctl --no-pager --full status "$service" || true
-      journalctl -u "$service" -n 20 --no-pager -o cat 2>/dev/null || true
-      failed=1
-    fi
-  done
+  if [[ "$mode" == "ws" ]]; then
+    section "WS 检查"
+  else
+    section "运行检查"
+    for service in nginx "$SING_SERVICE" "$ARGO_SERVICE"; do
+      if systemctl is-active --quiet "$service"; then
+        green "${service}：运行正常"
+      else
+        red "${service}：运行失败"
+        systemctl --no-pager --full status "$service" || true
+        journalctl -u "$service" -n 20 --no-pager -o cat 2>/dev/null || true
+        failed=1
+      fi
+    done
+  fi
 
   while read -r port; do
     if ! ss -lntH "sport = :${port}" 2>/dev/null | grep -q .; then
@@ -1577,11 +1589,11 @@ install_project() {
   section "运行状态"
   state_value "Argo Tunnel" "$(service_status "$ARGO_SERVICE")"
   state_value "代理核心" "$(core_label) · $(service_status "$SING_SERVICE")"
+  state_value "WARP" "$(warp_status)"
   key_value "Argo 域名" "$ARGO_DOMAIN"
   endpoint_value "优选入口" "$SERVER" "$SERVER_PORT"
-  key_value "本地回源" "127.0.0.1:${ORIGIN_PORT}"
+  key_value "Argo 回源" "127.0.0.1:${ORIGIN_PORT}"
   key_value "组件版本" "$(component_versions)"
-  state_value "WARP 分流" "$(warp_status)"
   key_value "节点文件" "$NODES_FILE"
   key_value "管理命令" "${COMMAND_NAME} / AF"
   show_install_nodes
@@ -1590,11 +1602,11 @@ install_project() {
 install_menu() {
   local choice
   while true; do
-    brand "${PROJECT_NAME} · 安装 / 更新" back
+    brand "${PROJECT_NAME} · 项目安装" back
     subsection "安装方式"
-    menu_item 1 "使用本地脚本重装" "不更新脚本"
-    menu_item 2 "在线更新后安装" "更新项目脚本"
-    menu_item 0 "返回"
+    menu_item 1 "本地安装"
+    menu_item 2 "在线安装"
+    menu_item 0 "返回上级"
     ui_line
     read_choice "请选择："; choice="$REPLY"
     case "$choice" in
@@ -1660,7 +1672,7 @@ list_node_profiles() {
   printf '%s%s%s\n' "$C_DIM" '--------------  -------  ------------------  -----  ------------' "$C_RESET"
   while IFS='|' read -r tag protocol path port socks; do
     printf '%s' "$C_BRIGHT_WHITE"; pad_right "$tag" 14; printf '%s  %s' "$C_RESET" "$C_BRIGHT_MAGENTA"
-    pad_right "$protocol" 7; printf '%s  %s' "$C_RESET" "$C_BRIGHT_WHITE"; pad_right "$path" 18
+    pad_right "$(protocol_label "$protocol")" 7; printf '%s  %s' "$C_RESET" "$C_BRIGHT_WHITE"; pad_right "$path" 18
     printf '%s  %s' "$C_RESET" "$C_BRIGHT_YELLOW"; pad_right "$port" 5; printf '%s  ' "$C_RESET"
     if [[ -n "$socks" ]]; then
       printf '%sSOCKS5%s\n' "$C_BRIGHT_CYAN" "$C_RESET"
@@ -1784,16 +1796,16 @@ edit_node_profile() {
 configure_warp() {
   local choice port targets domain normalized output item old_ifs answer
   while true; do
-    brand "${PROJECT_NAME} · WARP 网址分流" back
-    key_value "当前状态" "$([[ "$WARP_ENABLED" == "1" ]] && echo 已启用 || echo 未启用)"
+    brand "${PROJECT_NAME} · WARP 分流" back
+    state_value "WARP" "$(warp_status)"
     key_value "代理端口" "$WARP_PROXY_PORT"
     key_value "目标域名" "${WARP_DOMAINS:-无}"
-    subsection "操作"
-    menu_item 1 "启用 / 修改代理端口和全部域名"
+    subsection "WARP 操作"
+    menu_item 1 "启用配置"
     menu_item 2 "添加域名"
     menu_item 3 "删除域名"
-    menu_item 4 "停用 WARP 分流"
-    menu_item 0 "返回"
+    menu_item 4 "停用 WARP"
+    menu_item 0 "返回上级"
     ui_line
     read_choice "请选择："; choice="$REPLY"
     case "$choice" in
@@ -1862,14 +1874,14 @@ switch_proxy_core() {
   local choice requested
   require_root
   load_env
-  brand "${PROJECT_NAME} · 切换代理核心" back
+  brand "${PROJECT_NAME} · 核心切换" cancel
   key_value "当前核心" "$(core_label)"
   key_value "共享配置" "环境配置 · 节点定义 · Nginx · 订阅"
   key_value "保留配置" "sing-box.json · xray.json"
   section "选择核心"
   menu_item 1 "Sing-box"
   menu_item 2 "Xray"
-  menu_item 0 "返回"
+  menu_item 0 "取消操作"
   ui_line
   read_choice "请选择："; choice="$REPLY"
   is_exit_input "$choice" && { return_notice; return 0; }
@@ -1896,19 +1908,20 @@ manage_config() {
   [[ -f "$ENV_FILE" ]] || die "${PROJECT_NAME} 尚未安装。"
   ensure_nodes_config
   while true; do
-    brand "${PROJECT_NAME} · 配置管理" back
-    subsection "基础配置"
-    menu_item 1 "Token / Argo 域名"
-    menu_item 2 "Cloudflare 优选入口"
-    menu_item 3 "Argo Tunnel 回源端口（节点端口依次顺延）"
+    brand "${PROJECT_NAME} · 参数配置" back
+    subsection "Argo 配置"
+    menu_item 1 "Token 域名"
+    menu_item 2 "优选入口"
+    menu_item 3 "回源端口"
     menu_item 4 "全局 UUID"
-    section "节点与分流"
+    section "节点配置"
     menu_item 5 "查看节点"
     menu_item 6 "添加节点"
     menu_item 7 "修改节点"
     menu_item 8 "删除节点"
-    menu_item 9 "WARP 网址分流"
-    menu_item 0 "返回"
+    section "WARP 配置"
+    menu_item 9 "WARP 分流"
+    menu_item 0 "返回上级"
     ui_line
     read_choice "请选择："; choice="$REPLY"
     case "$choice" in
@@ -2101,13 +2114,13 @@ backup_restore_menu() {
   local choice
   require_root
   while true; do
-    brand "${PROJECT_NAME} · 节点备份与恢复" back
+    brand "${PROJECT_NAME} · 备份恢复" back
     key_value "节点配置" "$NODES_CONFIG"
     key_value "默认目录" "$BACKUP_DIR"
-    section "操作"
-    menu_item 1 "备份节点配置"
-    menu_item 2 "恢复节点配置"
-    menu_item 0 "返回"
+    section "备份恢复"
+    menu_item 1 "节点备份"
+    menu_item 2 "节点恢复"
+    menu_item 0 "返回上级"
     ui_line
     read_choice "请选择："; choice="$REPLY"
     case "$choice" in
@@ -2136,7 +2149,7 @@ colorize_journal() {
 }
 
 doctor() {
-  local failed=0 token_in_unit=0 warp_target ip memory directory mode log_errors=0
+  local failed=0 token_in_unit=0 warp_target ip memory directory mode log_errors=0 warnings=0
   require_root
   load_env
   ensure_nodes_config
@@ -2144,22 +2157,22 @@ doctor() {
     hostname -I 2>/dev/null | awk '{print $1}')"
   memory="$(free -m | awk '/^Mem:/{printf "%s/%s MiB (%.0f%%)",$3,$2,$3*100/$2}')"
   brand "${PROJECT_NAME} · 运行诊断"
-  subsection "运行状态"
+  subsection "系统状态"
   ip_value "公网 IP" "${ip:-未知}"
   key_value "脚本版本" "v${VERSION}"
   key_value "内存" "${memory:-未知}"
   endpoint_value "优选入口" "${SERVER:-未知}" "${SERVER_PORT:-未知}"
-  key_value "本地回源" "127.0.0.1:${ORIGIN_PORT}"
-  section "配置与组件"
+  key_value "Argo 回源" "127.0.0.1:${ORIGIN_PORT}"
+  section "配置检查"
   if validate_nodes_config && valid_uuid "$UUID" && valid_argo_token "$ARGO_TOKEN" &&
     [[ -n "$ARGO_DOMAIN" ]]; then
-    green "项目配置：有效"
+    green "AFS 配置"
   else
-    red "项目配置：无效"
+    red "AFS 配置"
     failed=1
   fi
-  if core_check >/dev/null 2>&1; then green "$(core_label) 配置：有效"; else red "$(core_label) 配置：无效"; failed=1; fi
-  if nginx -t >/dev/null 2>&1; then green "Nginx 配置：有效"; else red "Nginx 配置：无效"; failed=1; fi
+  if core_check >/dev/null 2>&1; then green "$(core_label) 配置"; else red "$(core_label) 配置"; failed=1; fi
+  if nginx -t >/dev/null 2>&1; then green "Nginx 配置"; else red "Nginx 配置"; failed=1; fi
   for directory in "$CONFIG_DIR" "$DATA_DIR" "$SUBSCRIPTION_DIR"; do
     mode="$(stat -c '%a' "$directory" 2>/dev/null || true)"
     case "$directory:$mode" in
@@ -2172,6 +2185,10 @@ doctor() {
   [[ -f "/etc/systemd/system/${ARGO_SERVICE}.service" ]] &&
     grep -Fq -- "--token ${ARGO_TOKEN}" "/etc/systemd/system/${ARGO_SERVICE}.service" && token_in_unit=1
   ((token_in_unit)) && green "Token：已配置且服务文件一致" || { red "Token：缺失或服务文件未同步"; failed=1; }
+  section "服务检查"
+  if systemctl is-active --quiet nginx; then green "Nginx"; else red "Nginx"; failed=1; fi
+  if systemctl is-active --quiet "$SING_SERVICE"; then green "$(core_label) Core"; else red "$(core_label) Core"; failed=1; fi
+  if systemctl is-active --quiet "$ARGO_SERVICE"; then green "Argo Tunnel"; else red "Argo Tunnel"; failed=1; fi
   key_value "组件版本" "$(component_versions)"
   if [[ "$WARP_ENABLED" == "1" ]]; then
     if systemctl is-active --quiet warp-svc &&
@@ -2192,16 +2209,23 @@ doctor() {
     fi
   else
     yellow "WARP：未启用"
+    warnings=1
   fi
-  health_check || failed=1
+  health_check ws || failed=1
   journalctl -u "$SING_SERVICE" -u "$ARGO_SERVICE" -n 30 --no-pager -o short-iso 2>/dev/null |
     grep -qE ' ERROR | ERROR\[' && log_errors=1 || true
-  section "最近日志"
+  section "诊断结果"
+  if ((failed)); then
+    red "发现异常，请检查以上项目。"
+  elif ((warnings)); then
+    yellow "存在提示 · 0 错误 · ${warnings} 警告"
+  else
+    green "运行正常 · 0 错误 · 0 警告"
+  fi
   if ((log_errors)); then
+    section "错误日志"
     journalctl -u "$SING_SERVICE" -u "$ARGO_SERVICE" -n 30 --no-pager -o short-iso 2>/dev/null |
       colorize_journal || true
-  else
-    green "最近 30 行项目日志未发现 ERROR。"
   fi
   return "$failed"
 }
@@ -2211,16 +2235,16 @@ show_nodes() {
   load_env
   [[ -f "$NODES_FILE" ]] || die "节点文件不存在，请先安装。"
   auto_url="https://${ARGO_DOMAIN}/${UUID}/auto"
-  brand "${PROJECT_NAME} · 节点与订阅"
+  brand "${PROJECT_NAME} · 节点订阅"
   UI_TIGHT_SECTION=1
   subsection "订阅链接"
-  link_value "订阅中心" "https://${ARGO_DOMAIN}/${UUID}/"
+  link_value "订阅首页" "https://${ARGO_DOMAIN}/${UUID}/"
   link_value "自动适配" "$auto_url"
   link_value "原始订阅" "https://${ARGO_DOMAIN}/${UUID}/raw"
-  link_value "Base64 通用" "https://${ARGO_DOMAIN}/${UUID}/base64"
-  link_value "Clash/Mihomo" "https://${ARGO_DOMAIN}/${UUID}/clash"
-  link_value "Clash Provider" "https://${ARGO_DOMAIN}/${UUID}/proxies"
-  link_value "sing-box" "https://${ARGO_DOMAIN}/${UUID}/sing-box"
+  link_value "Base64" "https://${ARGO_DOMAIN}/${UUID}/base64"
+  link_value "Clash" "https://${ARGO_DOMAIN}/${UUID}/clash"
+  link_value "Provider" "https://${ARGO_DOMAIN}/${UUID}/proxies"
+  link_value "Sing-box" "https://${ARGO_DOMAIN}/${UUID}/sing-box"
   if command -v qrencode >/dev/null 2>&1; then
     section "自动适配 QR"
     qrencode -t ANSIUTF8 "$auto_url"
@@ -2232,7 +2256,7 @@ show_nodes() {
     ((index > 1)) && printf '\n'
     printf '%s%s[%02d]%s %s%s%s %s·%s %s%s%s %s· WS %s%s%s\n%s%s%s\n' \
       "$C_BOLD" "$C_BRIGHT_CYAN" "$index" "$C_RESET" "$C_BRIGHT_WHITE" "$tag" "$C_RESET" \
-      "$C_BRIGHT_WHITE" "$C_RESET" "$C_BRIGHT_MAGENTA" "${protocol^^}" "$C_RESET" \
+      "$C_BRIGHT_WHITE" "$C_RESET" "$C_BRIGHT_MAGENTA" "$(protocol_label "$protocol")" "$C_RESET" \
       "$C_BRIGHT_WHITE" "$C_BRIGHT_YELLOW" "$path" "$C_RESET" "$C_BRIGHT_WHITE" "$node" "$C_RESET"
   done <"$NODES_CONFIG" 3<"$NODES_FILE"
   printf '\n'
@@ -2261,18 +2285,19 @@ manage_services() {
   require_root
   while true; do
     load_env
-    brand "${PROJECT_NAME} · 服务管理" back
+    brand "${PROJECT_NAME} · 服务启停" back
+    subsection "服务状态"
     state_value "Argo Tunnel" "$(service_status "$ARGO_SERVICE")"
     state_value "代理核心" "$(core_label) · $(service_status "$SING_SERVICE")"
-    section "操作"
-    menu_item 1 "切换 Argo Tunnel 状态"
-    menu_item 2 "切换代理核心状态"
-    menu_item 0 "返回"
+    section "服务操作"
+    menu_item 1 "Argo 启停"
+    menu_item 2 "核心启停"
+    menu_item 0 "返回上级"
     ui_line
     read_choice "请选择："; choice="$REPLY"
     case "$choice" in
       1) toggle_service "$ARGO_SERVICE" "Argo Tunnel" ;;
-      2) toggle_service "$SING_SERVICE" "代理核心 $(core_label)" ;;
+      2) toggle_service "$SING_SERVICE" "$(core_label) Core" ;;
       0) return ;;
       *) yellow "请输入 0、1 或 2。" ;;
     esac
@@ -2369,10 +2394,10 @@ manage_bbr() {
   local answer
   require_root
   command -v curl >/dev/null 2>&1 || die "缺少 curl，无法启动 BBR/内核管理脚本。"
-  brand "${PROJECT_NAME} · 第三方 BBR / DD 工具" cancel
-  yellow "第三方工具：升级内核、安装 BBR、DD 系统均由 ylx2016/Linux-NetSpeed 脚本提供。"
-  yellow "${PROJECT_NAME} 不维护其代码、功能与执行结果。"
-  read_input "确认启动第三方脚本？[y/N]: " answer
+  brand "${PROJECT_NAME} · BBR / DD" cancel
+  yellow "第三方脚本：Linux-NetSpeed"
+  yellow "可修改 Linux 内核、BBR 与系统磁盘。"
+  read_input "确认启动？[y/N]: " answer
   is_exit_input "$answer" && { return_notice; return 0; }
   [[ "$answer" =~ ^[Yy]$ ]] || { yellow "已取消启动第三方脚本。"; return 0; }
   info "正在启动第三方脚本..."
@@ -2384,13 +2409,15 @@ restart_services() {
   local answer
   require_root
   load_env
-  brand "${PROJECT_NAME} · 重启服务" cancel
-  read_input "确认重启 Nginx、$(core_label) 与 Argo？[y/N]: " answer
+  brand "${PROJECT_NAME} · 服务重启" cancel
+  key_value "重启服务" "Nginx · $(core_label) · Argo Tunnel"
+  ui_line
+  read_input "确认重启？[y/N]: " answer
   is_exit_input "$answer" && { return_notice; return 0; }
   [[ "$answer" =~ ^[Yy]$ ]] || { yellow "已取消重启。"; return 0; }
-  info "正在重启 Nginx、$(core_label) 与 Argo..."
+  info "正在重启 AFS 服务..."
   systemctl restart nginx "$SING_SERVICE" "$ARGO_SERVICE"
-  green "服务已重启。"
+  green "AFS 服务已重启。"
 }
 
 purge_installed_packages() {
@@ -2410,14 +2437,13 @@ uninstall_project() {
   resolved_work_dir="$(readlink -f "$WORK_DIR" 2>/dev/null || true)"
   [[ "$resolved_work_dir" == "$WORK_DIR" ]] ||
     die "项目目录解析结果异常，拒绝递归删除：${WORK_DIR}"
-  brand "${PROJECT_NAME} · 卸载" cancel
-  yellow "即将删除以下项目内容："
-  printf '  %s•%s %s systemd 服务\n' "$C_BRIGHT_YELLOW" "$C_RESET" "$PROJECT_NAME"
-  printf '  %s•%s 私有 Argo / cloudflared 核心\n' "$C_BRIGHT_YELLOW" "$C_RESET"
-  printf '  %s•%s 私有 Sing-box / Xray 核心\n' "$C_BRIGHT_YELLOW" "$C_RESET"
-  printf '  %s•%s %s 配置、订阅与备份\n' "$C_BRIGHT_YELLOW" "$C_RESET" "$WORK_DIR"
-  printf '  %s•%s %s 命令入口\n\n' "$C_BRIGHT_YELLOW" "$C_RESET" "$COMMAND_NAME"
-  read_input "确认彻底卸载 ${PROJECT_NAME}？[y/N]: " answer
+  brand "${PROJECT_NAME} · 项目卸载" cancel
+  yellow "即将删除 AFS 项目文件与服务。"
+  printf '  %s•%s AFS systemd 服务\n' "$C_BRIGHT_YELLOW" "$C_RESET"
+  printf '  %s•%s Sing-box / Xray / cloudflared\n' "$C_BRIGHT_YELLOW" "$C_RESET"
+  printf '  %s•%s %s 配置与订阅\n' "$C_BRIGHT_YELLOW" "$C_RESET" "$WORK_DIR"
+  printf '  %s•%s %s / AF 命令入口\n\n' "$C_BRIGHT_YELLOW" "$C_RESET" "$COMMAND_NAME"
+  read_input "确认卸载？[y/N]: " answer
   is_exit_input "$answer" && { return_notice; return 0; }
   [[ "$answer" =~ ^[Yy]$ ]] || { yellow "已取消卸载。"; return 0; }
   if command -v nginx >/dev/null 2>&1 ||
@@ -2492,30 +2518,30 @@ menu() {
     subsection "运行状态"
     state_value "Argo Tunnel" "$(service_status "$ARGO_SERVICE")"
     state_value "代理核心" "$(core_label) · $(service_status "$SING_SERVICE")"
+    state_value "WARP" "$(warp_status)"
     if [[ -n "$ARGO_DOMAIN" ]]; then
       key_value "Argo 域名" "$ARGO_DOMAIN"
       endpoint_value "优选入口" "$SERVER" "$SERVER_PORT"
-      key_value "本地回源" "127.0.0.1:${ORIGIN_PORT}"
+      key_value "Argo 回源" "127.0.0.1:${ORIGIN_PORT}"
     fi
     key_value "组件版本" "$(component_versions)"
-    state_value "WARP 分流" "$(warp_status)"
     ui_line
     brand "${PROJECT_NAME} · 控制中心" main
     UI_TIGHT_SECTION=1
     section "日常管理"
-    menu_item 1 "节点与订阅" "${COMMAND_NAME} -n"
-    menu_item 2 "服务管理" "${COMMAND_NAME} -a"
-    menu_item 3 "切换代理核心" "${COMMAND_NAME} -p"
-    menu_item 4 "配置管理" "${COMMAND_NAME} -c"
-    menu_item 5 "重启服务" "${COMMAND_NAME} -r"
+    menu_item 1 "节点订阅" "${COMMAND_NAME} -n"
+    menu_item 2 "服务启停" "${COMMAND_NAME} -a"
+    menu_item 3 "核心切换" "${COMMAND_NAME} -p"
+    menu_item 4 "参数配置" "${COMMAND_NAME} -c"
+    menu_item 5 "服务重启" "${COMMAND_NAME} -r"
     menu_item 6 "运行诊断" "${COMMAND_NAME} -x"
-    section "维护工具"
-    menu_item 7 "安装 / 更新 ${PROJECT_NAME}" "${COMMAND_NAME} -i"
-    menu_item 8 "更新 Argo / $(core_label)" "${COMMAND_NAME} -v"
-    menu_item 9 "节点备份与恢复" "${COMMAND_NAME} -k"
-    menu_item 10 "第三方 BBR / DD" "${COMMAND_NAME} -b"
-    menu_item 11 "卸载 ${PROJECT_NAME}" "${COMMAND_NAME} -u"
-    menu_item 0 "退出"
+    section "系统维护"
+    menu_item 7 "项目安装" "${COMMAND_NAME} -i"
+    menu_item 8 "组件更新" "${COMMAND_NAME} -v"
+    menu_item 9 "备份恢复" "${COMMAND_NAME} -k"
+    menu_item 10 "BBR / DD" "${COMMAND_NAME} -b"
+    menu_item 11 "项目卸载" "${COMMAND_NAME} -u"
+    menu_item 0 "退出脚本"
     ui_line
     read_choice "请选择："; choice="$REPLY"
     case "$choice" in
