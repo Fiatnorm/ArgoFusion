@@ -43,9 +43,10 @@ LEGACY_MIGRATED=0
 
 DEFAULT_SERVER="bestcf.cdn.fiatnorm.us.kg"
 DEFAULT_SERVER_PORT="443"
-DEFAULT_SING_BOX_VERSION="1.13.14"
-SING_BOX_FORCE_VERSION_URL="https://raw.githubusercontent.com/fscarmen/sing-box/refs/heads/main/force_version"
-DEFAULT_XRAY_VERSION="26.7.11"
+# 仅使用项目验证过的官方稳定版，避免安装或更新时混入预发布版本。
+DEFAULT_SING_BOX_VERSION="1.13.15"
+DEFAULT_XRAY_VERSION="26.3.27"
+DEFAULT_CLOUDFLARED_VERSION="2026.7.3"
 
 DEFAULT_ORIGIN_PORT=3010
 ORIGIN_PORT="$DEFAULT_ORIGIN_PORT"
@@ -654,36 +655,15 @@ verify_github_asset() {
 }
 
 get_sing_box_version() {
-  local force_version releases version_family result
-  force_version="$(curl -fsSL --connect-timeout 3 "$SING_BOX_FORCE_VERSION_URL" 2>/dev/null |
-    sed 's/^[vV]//; s/\r//g' || true)"
-  if [[ -n "$force_version" ]]; then
-    printf '%s\n' "$force_version"
-    return
-  fi
-
-  releases="$(curl -fsSL --connect-timeout 5 https://api.github.com/repos/SagerNet/sing-box/releases 2>/dev/null || true)"
-  version_family="$(sed -n 's/.*"tag_name": *"v\([0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' <<<"$releases" |
-    sort -Vr | head -n1)"
-  result="$(sed -n "s/.*\"tag_name\": *\"v\\(${version_family//./\\.}[^\" ]*\\)\".*/\\1/p" <<<"$releases" |
-    head -n1)"
-  printf '%s\n' "${result:-$DEFAULT_SING_BOX_VERSION}"
+  printf '%s\n' "$DEFAULT_SING_BOX_VERSION"
 }
 
 get_xray_version() {
-  local releases version
-  releases="$(curl -fsSL --connect-timeout 5 https://api.github.com/repos/XTLS/Xray-core/releases 2>/dev/null || true)"
-  version="$(sed -n 's/.*"tag_name": *"v\([^" ]*\)".*/\1/p' <<<"$releases" | sort -Vr | head -n1)"
-  printf '%s\n' "${version:-$DEFAULT_XRAY_VERSION}"
+  printf '%s\n' "$DEFAULT_XRAY_VERSION"
 }
 
 get_cloudflared_version() {
-  local metadata version
-  metadata="$(mktemp)"
-  download "https://api.github.com/repos/cloudflare/cloudflared/releases/latest" "$metadata"
-  version="$(sed -n 's/.*"tag_name":[[:space:]]*"\([^"]*\)".*/\1/p' "$metadata" | head -n1)"
-  rm -f "$metadata"
-  printf '%s\n' "${version#v}"
+  printf '%s\n' "$DEFAULT_CLOUDFLARED_VERSION"
 }
 
 stage_sing_box() {
@@ -721,10 +701,12 @@ stage_xray() {
 }
 
 stage_cloudflared() {
-  local target="$1" suffix
+  local version="${1:-}" target="$2" suffix
+  [[ -n "$version" ]] || version="$(get_cloudflared_version)"
+  [[ -n "$version" ]] || die "无法确定 cloudflared 版本。"
   [[ "$ARCH" == "amd64" ]] && suffix="amd64" || suffix="arm64"
-  download "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${suffix}" "$target"
-  verify_github_asset "$target" "cloudflare/cloudflared" "latest" "cloudflared-linux-${suffix}"
+  download "https://github.com/cloudflare/cloudflared/releases/download/${version}/cloudflared-linux-${suffix}" "$target"
+  verify_github_asset "$target" "cloudflare/cloudflared" "tags/${version}" "cloudflared-linux-${suffix}"
   chmod 755 "$target"
   "$target" --version >/dev/null
 }
@@ -1536,7 +1518,7 @@ install_project() {
   sing_box_stage="$(mktemp)"; xray_stage="$(mktemp)"; argo_stage="$(mktemp)"
   stage_sing_box "$DEFAULT_SING_BOX_VERSION" "$sing_box_stage"
   stage_xray "$DEFAULT_XRAY_VERSION" "$xray_stage"
-  stage_cloudflared "$argo_stage"
+  stage_cloudflared "$DEFAULT_CLOUDFLARED_VERSION" "$argo_stage"
   install -m 755 "$sing_box_stage" "${BIN_DIR}/sing-box.new"
   install -m 755 "$xray_stage" "${BIN_DIR}/xray.new"
   install -m 755 "$argo_stage" "${BIN_DIR}/cloudflared.new"
@@ -2305,14 +2287,16 @@ manage_services() {
     section "服务操作"
     menu_item 1 "Argo 启停"
     menu_item 2 "核心启停"
+    menu_item 3 "重启服务"
     menu_item 0 "返回上级"
     ui_line
     read_choice "请选择："; choice="$REPLY"
     case "$choice" in
       1) toggle_service "$ARGO_SERVICE" "Argo Tunnel" ;;
       2) toggle_service "$SING_SERVICE" "$(core_label) Core" ;;
+      3) restart_services ;;
       0) return ;;
-      *) yellow "请输入 0、1 或 2。" ;;
+      *) yellow "请输入 0、1、2 或 3。" ;;
     esac
   done
 }
@@ -2368,7 +2352,7 @@ sync_versions() {
   fi
   if ((update_argo)); then
     argo_stage="$(mktemp)"
-    stage_cloudflared "$argo_stage"
+    stage_cloudflared "$wanted_argo" "$argo_stage"
   fi
   backup_stamp="${BACKUP_DIR}/core-$(date +%Y%m%d-%H%M%S)"
   install -d -m 700 "$backup_stamp"
@@ -2546,14 +2530,13 @@ menu() {
     menu_item 2 "服务启停" "${COMMAND_NAME} -a"
     menu_item 3 "核心切换" "${COMMAND_NAME} -p"
     menu_item 4 "参数配置" "${COMMAND_NAME} -c"
-    menu_item 5 "服务重启" "${COMMAND_NAME} -r"
-    menu_item 6 "运行诊断" "${COMMAND_NAME} -x"
+    menu_item 5 "运行诊断" "${COMMAND_NAME} -x"
     section "系统维护"
-    menu_item 7 "项目安装" "${COMMAND_NAME} -i"
-    menu_item 8 "组件更新" "${COMMAND_NAME} -v"
-    menu_item 9 "备份恢复" "${COMMAND_NAME} -k"
-    menu_item 10 "BBR / DD" "${COMMAND_NAME} -b"
-    menu_item 11 "项目卸载" "${COMMAND_NAME} -u"
+    menu_item 6 "项目安装" "${COMMAND_NAME} -i"
+    menu_item 7 "组件更新" "${COMMAND_NAME} -v"
+    menu_item 8 "备份恢复" "${COMMAND_NAME} -k"
+    menu_item 9 "BBR / DD" "${COMMAND_NAME} -b"
+    menu_item 10 "项目卸载" "${COMMAND_NAME} -u"
     menu_item 0 "退出脚本"
     ui_line
     read_choice "请选择："; choice="$REPLY"
@@ -2562,15 +2545,14 @@ menu() {
       2) manage_services ;;
       3) switch_proxy_core ;;
       4) manage_config ;;
-      5) restart_services ;;
-      6) doctor ;;
-      7) install_menu ;;
-      8) sync_versions ;;
-      9) backup_restore_menu ;;
-      10) manage_bbr ;;
-      11) uninstall_project ;;
+      5) doctor ;;
+      6) install_menu ;;
+      7) sync_versions ;;
+      8) backup_restore_menu ;;
+      9) manage_bbr ;;
+      10) uninstall_project ;;
       0) exit 0 ;;
-      *) yellow "请输入 0 到 11。" ;;
+      *) yellow "请输入 0 到 10。" ;;
     esac
   done
 }
@@ -2581,7 +2563,6 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
     -a) manage_services ;;
     -p) switch_proxy_core ;;
     -c) manage_config ;;
-    -r) restart_services ;;
     -x) doctor ;;
     -i)
       if [[ "${2:-}" == "--github-refreshed" ]]; then
@@ -2600,6 +2581,6 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
     -b) manage_bbr ;;
     -u) uninstall_project ;;
     "") menu ;;
-    *) die "未知参数。可用参数：-n、-a、-p、-c、-r、-x、-i、-v、-k、-b、-u。" ;;
+    *) die "未知参数。可用参数：-n、-a、-p、-c、-x、-i、-v、-k、-b、-u。" ;;
   esac
 fi

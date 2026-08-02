@@ -16,7 +16,7 @@ TLS 由 Cloudflare 边缘终止；VPS 本机 Nginx 与所选代理内核仅监�
 
 ## 安装
 
-当前为本地重命名版本。请在本地目录直接安装；GitHub 仓库尚未按本次要求更名，在线下载和 `af -i` 的在线更新将在仓库同步后可用。
+可在本地目录直接安装；安装后的 `af -i` 也可选择从 GitHub 获取脚本后在线更新安装。
 
 ```bash
 chmod +x argofusion.sh
@@ -139,18 +139,18 @@ v2.12.2 将首次安装和缺省环境配置中的 Cloudflare 优选入口统一
 v2.12.1 在 v2.12.0 的 UI 收敛基础上补强配置事务：派生节点/订阅文件纳入回滚快照，订阅生成或服务验证失败时恢复完整运行面，并集中校验已有环境文件；状态行对 IPv6 优选入口统一显示为 `[地址]:端口`。同时保持 64 列分隔线、白色下划线 URL、唯一自动适配 QR 和节点专用备份边界不变。
 v2.12.0 配置文件索引改为白色下划线 URL，不再输出整行链接分隔线；所有页面的分隔线后一级小标题均紧贴显示。Argo 回源地址保持白色，本机公网 IP 与优选入口 IP 保持亮紫色。
 
-下载具有总超时、重试、GitHub 反代回退和 GitHub Release SHA256 digest 校验；直连失败时优先使用 `github-proxy.fiatnorm.pp.ua`，随后才尝试其他反代。二进制还会执行基本版本检查。Sing-box 版本优先采用上游 `force_version`，不可用时回退到 GitHub releases，再失败才使用脚本预设版本；Xray 从 `XTLS/Xray-core` 官方 Release 查询与校验。
+下载具有总超时、重试、GitHub 反代回退和 GitHub Release SHA256 digest 校验；直连失败时优先使用 `github-proxy.fiatnorm.pp.ua`，随后才尝试其他反代。二进制还会执行基本版本检查。Sing-box、Xray 与 cloudflared 均固定为项目验证过的官方稳定发布，组件更新不会自动切换到预发布版本。
 
-首次安装使用经过项目确认的 Sing-box `1.13.0-rc.4` 与 Xray `26.7.11`，避免安装时因远端版本变化产生不一致；cloudflared 首次安装按原版 SBA 逻辑使用 GitHub latest。后续执行 `af -v` 时，脚本只查询和更新当前选择的代理内核。
+当前固定版本为 Sing-box `1.13.15`、Xray `26.3.27`、cloudflared `2026.7.3`；系统依赖继续从当前 Debian/Ubuntu 的官方稳定 APT 源安装，以保持发行版兼容性。后续执行 `af -v` 时，脚本只比较和更新当前选择的代理内核及 cloudflared 至上述固定稳定版本。
 
 ## 是否需要反复拉取 GitHub
 
-安装完成后，脚本会保存在 `/etc/afs/argofusion.sh`，并建立等价的本地命令 `/usr/local/bin/af` 与 `/usr/local/bin/AF`。查看节点、修改 Token/优选入口、启停或重启服务、查看状态和卸载都直接使用 VPS 上的本地文件，不会重新拉取仓库。待 GitHub 仓库同步为 `Fiatnorm/ArgoFusion` 后，`af -i` 才可从该仓库获取、校验并原子替换最新脚本。
+安装完成后，脚本会保存在 `/etc/afs/argofusion.sh`，并建立等价的本地命令 `/usr/local/bin/af` 与 `/usr/local/bin/AF`。查看节点、修改 Token/优选入口、启停或重启服务、查看状态和卸载都直接使用 VPS 上的本地文件，不会重新拉取仓库。`af -i` 可从 `Fiatnorm/ArgoFusion` 获取、校验并原子替换最新脚本。
 
 以下操作仍会主动访问网络：
 
 - 首次安装或再次执行“安装 / 更新”：获取并校验最新 ArgoFusion 脚本，再下载并校验 Sing-box、Xray 与 cloudflared 官方发布物。
-- `af -v`：查询 GitHub Release/`force_version`，有更新并确认后下载核心。
+- `af -v`：比较固定的稳定组件版本，有更新并确认后下载核心。
 - 健康检查：访问 Cloudflare 公网入口。
 - 状态诊断：尝试访问 `api.ipify.org` 获取公网 IP，失败时自动使用本机地址。
 - `af -b`：明确执行第三方的内核升级、BBR 和 DD 系统脚本。
@@ -181,10 +181,9 @@ sudo ./argofusion.sh -i
 | `sudo AF` | 与 `sudo af` 完全等价 |
 | `sudo af -i` | 选择使用 VPS 本地脚本重装，或从 GitHub 获取最新脚本后安装 |
 | `sudo af -n` | 显示全部节点、所有订阅地址及一张自动适配订阅 QR |
-| `sudo af -a` | 打开服务启停，切换 Argo Tunnel 或代理核心状态 |
+| `sudo af -a` | 打开服务启停，切换 Argo Tunnel、代理核心状态或重启全部服务 |
 | `sudo af -p` | 打开核心切换，切换 Sing-box / Xray 代理核心 |
 | `sudo af -c` | 修改 Token、域名、优选入口、端口、UUID、节点、SOCKS5 与 WARP 域名 |
-| `sudo af -r` | 重启 Nginx、当前代理内核和 Argo 服务 |
 | `sudo af -x` | 执行运行诊断、WS 检查并显示最近日志 |
 | `sudo af -v` | 比较版本并更新 Argo/cloudflared 与当前选择的代理内核 |
 | `sudo af -k` | 打开节点备份与恢复菜单 |
@@ -202,13 +201,12 @@ sudo ./argofusion.sh -i
 2. 服务启停 (af -a)
 3. 核心切换 (af -p)
 4. 参数配置 (af -c)
-5. 服务重启 (af -r)
-6. 运行诊断 (af -x)
-7. 项目安装 (af -i)
-8. 组件更新 (af -v)
-9. 备份恢复 (af -k)
-10. BBR / DD (af -b)
-11. 项目卸载 (af -u)
+5. 运行诊断 (af -x)
+6. 项目安装 (af -i)
+7. 组件更新 (af -v)
+8. 备份恢复 (af -k)
+9. BBR / DD (af -b)
+10. 项目卸载 (af -u)
 0. 退出脚本
 ```
 
