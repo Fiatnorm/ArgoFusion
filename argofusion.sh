@@ -88,23 +88,25 @@ pad_right() {
   printf '%s%*s' "$text" "$pad" ''
 }
 ui_page() {
-  local title="$1" mode="${2:-none}" hint="" title_width hint_width padding
+  local title="$1" mode="${2:-none}" hint="" hint_text="" title_width hint_width padding
   case "$mode" in
-    main) hint="0 · 退出" ;;
-    back) hint="0 · 返回" ;;
-    cancel) hint="0 · 取消" ;;
+    main) hint_text="退出" ;;
+    back) hint_text="返回" ;;
+    cancel) hint_text="取消" ;;
     none) ;;
     *) die "未知页面提示模式：${mode}" ;;
   esac
+  [[ -z "$hint_text" ]] || hint="0 · ${hint_text}"
   printf '\n%s%s◆ %s%s' "$C_BOLD" "$C_BRIGHT_MAGENTA" "$title" "$C_RESET"
   if [[ -n "$hint" ]]; then
     title_width="$(display_width "$title")"
     hint_width="$(display_width "$hint")"
     padding=$((UI_WIDTH - 2 - title_width - hint_width))
     if ((padding >= 2)); then
-      printf '%*s%s%s%s\n' "$padding" '' "$C_DIM" "$hint" "$C_RESET"
+      printf '%*s%s0%s · %s%s\n' "$padding" '' "$C_BRIGHT_YELLOW" "$C_BRIGHT_WHITE" \
+        "$hint_text" "$C_RESET"
     else
-      printf '\n  %s%s%s\n' "$C_DIM" "$hint" "$C_RESET"
+      printf '\n  %s0%s · %s%s\n' "$C_BRIGHT_YELLOW" "$C_BRIGHT_WHITE" "$hint_text" "$C_RESET"
     fi
   else
     printf '\n'
@@ -980,7 +982,7 @@ EOF
     }
     location = /${UUID}/ {
         default_type text/html;
-        return 200 '<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ArgoFusion 订阅中心</title><style>body{margin:0;background:#f6f9ff;color:#172033;font:16px/1.6 system-ui,sans-serif}main{max-width:880px;margin:auto;padding:48px 20px}.ey{color:#0969da;font-size:12px;font-weight:800;letter-spacing:.14em}h1{margin:3px 0 4px;color:#0757c7;font-size:34px}p,small{color:#60708a}.hero,.card{border:1px solid #d5e3f7;border-radius:14px;background:#fff;box-shadow:0 8px 24px #1d5fa012}.hero{display:grid;grid-template-columns:166px 1fr;gap:25px;align-items:center;margin:28px 0 36px;padding:24px}.hero img{display:block;width:146px;height:146px;padding:9px;border:1px solid #d5e3f7;border-radius:10px}.hero b{color:#0757c7;font-size:22px}.open{display:inline-block;margin-top:8px;padding:8px 14px;border-radius:8px;background:#0969da;color:#fff;text-decoration:none;font-weight:700}.head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px}.head h2{margin:0;color:#0757c7;font-size:20px}.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}.card{padding:18px;color:#0757c7;text-decoration:none;font-weight:800}.card:hover{border-color:#0969da;transform:translateY(-2px)}.card small{display:block;margin-top:8px;font-weight:400}@media(max-width:560px){main{padding:30px 15px}.hero{grid-template-columns:1fr;padding:20px}.hero img{margin:auto}.grid{grid-template-columns:1fr}}</style><main><p class=ey>ARGO FUSION</p><h1>订阅中心</h1><p>选择适合客户端的订阅方式。</p><section class=hero><a href=auto><img src=auto-qr.svg alt="自适应订阅 QR"></a><div><b>自适应订阅</b><p>推荐使用。扫码或打开链接，自动匹配客户端格式。</p><a class=open href=auto>打开自适应订阅</a></div></section><div class=head><h2>指定格式</h2><small>共五类订阅与节点链接</small></div><section class=grid><a class=card href=base64>Base64 订阅<small>V2rayN、NekoBox、Shadowrocket</small></a><a class=card href=clash>Clash/Mihomo 订阅<small>完整 YAML 配置</small></a><a class=card href=sing-box>Sing-box 订阅<small>JSON 出站配置</small></a><a class=card href=raw>原始节点链接<small>逐行 vless、vmess、trojan</small></a></section></main>';
+        return 200 '<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ArgoFusion 订阅中心</title><style>body{margin:0;background:#fff;color:#17345f;font:16px/1.65 system-ui,sans-serif}main{max-width:960px;margin:auto;padding:52px 24px 64px}.ey{margin:0;color:#0969da;font-size:12px;font-weight:800;letter-spacing:.14em}h1{margin:4px 0 5px;color:#0757c7;font-size:36px;letter-spacing:-.03em}p,small{color:#61708a}.hero,.card{border:1px solid #cfe1fb;border-radius:16px;background:#fff;box-shadow:0 10px 28px #1d5fa00d}.hero{display:grid;grid-template-columns:166px 1fr;gap:28px;align-items:center;margin:28px 0 40px;padding:26px}.hero img{display:block;width:146px;height:146px;padding:9px;border:1px solid #cfe1fb;border-radius:11px}.hero b{color:#0757c7;font-size:23px}.hero p{margin:6px 0 0}.open{display:inline-block;margin-top:16px;padding:9px 15px;border-radius:8px;background:#0969da;color:#fff;text-decoration:none;font-weight:800}.head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:14px}.head h2{margin:0;color:#0757c7;font-size:21px}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.card{min-height:70px;padding:20px;color:#0757c7;text-decoration:none;font-weight:800;transition:border-color .16s,transform .16s,box-shadow .16s}.card:hover{border-color:#0969da;box-shadow:0 12px 28px #1d5fa018;transform:translateY(-2px)}.card small{display:block;margin-top:7px;font-weight:400}@media(max-width:560px){main{padding:34px 18px 48px}.hero{grid-template-columns:1fr;gap:18px;padding:22px}.hero img{margin:auto}.head{align-items:flex-start;flex-direction:column;gap:2px}.grid{grid-template-columns:1fr}}</style><main><p class=ey>ARGO FUSION</p><h1>订阅中心</h1><p>选择适合客户端的订阅方式。</p><section class=hero><a href=auto><img src=auto-qr.svg alt="自适应订阅 QR"></a><div><b>自适应订阅</b><p>推荐使用。扫码或打开链接，自动匹配客户端格式。</p><a class=open href=auto>打开自适应订阅</a></div></section><div class=head><h2>指定格式</h2><small>共五类订阅与节点链接</small></div><section class=grid><a class=card href=raw>原始节点链接<small>逐行 vless、vmess、trojan</small></a><a class=card href=base64>Base64 订阅<small>V2rayN、NekoBox、Shadowrocket</small></a><a class=card href=clash>Clash/Mihomo 订阅<small>完整 YAML 配置</small></a><a class=card href=sing-box>Sing-box 订阅<small>JSON 出站配置</small></a></section></main>';
     }
     location = /${UUID}/auto-qr.svg {
         default_type image/svg+xml;
