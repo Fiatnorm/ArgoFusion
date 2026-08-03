@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-VERSION="2.14.16"
+VERSION="2.14.17"
 PROJECT_NAME="ArgoFusion"
 PROJECT_CODE="AFS"
 COMMAND_NAME="af"
@@ -1830,6 +1830,7 @@ configure_warp() {
   local choice port targets domain normalized output item old_ifs answer
   while true; do
     brand "${PROJECT_NAME} · WARP 分流" back
+    subsection "当前状态"
     state_value "WARP" "$(warp_status)"
     key_value "代理端口" "$WARP_PROXY_PORT"
     key_value "目标域名" "${WARP_DOMAINS:-无}"
@@ -1908,10 +1909,12 @@ switch_proxy_core() {
   require_root
   load_env
   brand "${PROJECT_NAME} · 核心切换" cancel
-  key_value "当前核心" "$(core_label)"
+  subsection "当前状态"
+  state_value "代理核心" "$(service_status "$SING_SERVICE") · $(core_label)"
+  subsection "配置范围"
   key_value "共享配置" "环境配置 · 节点定义 · Nginx · 订阅"
   key_value "保留配置" "sing-box.json · xray.json"
-  section "选择核心"
+  subsection "切换操作"
   menu_item 1 "Sing-box"
   menu_item 2 "Xray"
   menu_item 0 "取消操作"
@@ -2014,6 +2017,7 @@ backup_project() {
   [[ -f "$MANAGED_FILE" ]] || die "缺少项目所有权标记，拒绝备份。"
   [[ -f "$NODES_CONFIG" ]] || die "节点配置不存在：${NODES_CONFIG}"
   brand "${PROJECT_NAME} · 备份节点配置"
+  subsection "备份配置"
   key_value "节点配置" "$NODES_CONFIG"
   key_value "默认目录" "$BACKUP_DIR"
   validate_nodes_config
@@ -2150,9 +2154,10 @@ backup_restore_menu() {
   require_root
   while true; do
     brand "${PROJECT_NAME} · 备份恢复" back
+    subsection "节点配置"
     key_value "节点配置" "$NODES_CONFIG"
     key_value "默认目录" "$BACKUP_DIR"
-    section "备份恢复"
+    subsection "备份恢复"
     menu_item 1 "节点备份"
     menu_item 2 "节点恢复"
     menu_item 0 "返回上级"
@@ -2301,7 +2306,8 @@ toggle_service() {
   systemctl list-unit-files "${service}.service" --no-legend 2>/dev/null | grep -q "^${service}.service" ||
     die "${label} 尚未安装。"
   brand "${PROJECT_NAME} · ${label}"
-  state_value "当前状态" "$(service_status "$service")"
+  subsection "服务状态"
+  state_value "$label" "$(service_status "$service")"
   if systemctl is-active --quiet "$service"; then
     info "正在停止 ${label}..."
     systemctl disable --now "$service"
@@ -2446,6 +2452,7 @@ restart_services() {
   require_root
   load_env
   brand "${PROJECT_NAME} · 服务重启" cancel
+  subsection "重启范围"
   key_value "重启服务" "Nginx · $(core_label) · Argo Tunnel"
   ui_line
   read_input "确认重启全部服务？[y/N]：" answer
