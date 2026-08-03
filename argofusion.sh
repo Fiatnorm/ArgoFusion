@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-VERSION="2.14.17"
+VERSION="2.14.19"
 PROJECT_NAME="ArgoFusion"
 PROJECT_CODE="AFS"
 COMMAND_NAME="af"
@@ -77,7 +77,7 @@ info() { printf '%s• %s%s\n' "$C_BRIGHT_CYAN" "$*" "$C_RESET"; }
 display_width() {
   local text="$1" bytes chars
   bytes="$(printf '%s' "$text" | wc -c)"
-  chars="$(printf '%s' "$text" | wc -m)"
+  chars="$(printf '%s' "$text" | LC_ALL=C.UTF-8 wc -m)"
   printf '%s' "$((chars + (bytes - chars) / 2))"
 }
 pad_right() {
@@ -93,6 +93,8 @@ ui_page() {
     main) hint_text="退出" ;;
     back) hint_text="返回" ;;
     cancel) hint_text="取消" ;;
+    keep) hint="Enter · 保持 | 0 · 取消" ;;
+    default) hint="Enter · 默认 | 0 · 取消" ;;
     none) ;;
     *) die "未知页面提示模式：${mode}" ;;
   esac
@@ -103,10 +105,24 @@ ui_page() {
     hint_width="$(display_width "$hint")"
     padding=$((UI_WIDTH - 2 - title_width - hint_width))
     if ((padding >= 2)); then
-      printf '%*s%s0%s · %s%s\n' "$padding" '' "$C_BRIGHT_YELLOW" "$C_BRIGHT_WHITE" \
-        "$hint_text" "$C_RESET"
+      if [[ "$mode" == "keep" || "$mode" == "default" ]]; then
+        printf '%*s%sEnter%s · %s%s%s %s|%s %s0%s · %s取消%s\n' "$padding" '' \
+          "$C_BRIGHT_YELLOW" "$C_BRIGHT_WHITE" \
+          "$([[ "$mode" == "keep" ]] && printf '保持' || printf '默认')" "$C_RESET" \
+          "$C_BRIGHT_WHITE" "$C_RESET" "$C_BRIGHT_YELLOW" "$C_BRIGHT_WHITE" "$C_RESET"
+      else
+        printf '%*s%s0%s · %s%s\n' "$padding" '' "$C_BRIGHT_YELLOW" "$C_BRIGHT_WHITE" \
+          "$hint_text" "$C_RESET"
+      fi
     else
-      printf '\n  %s0%s · %s%s\n' "$C_BRIGHT_YELLOW" "$C_BRIGHT_WHITE" "$hint_text" "$C_RESET"
+      if [[ "$mode" == "keep" || "$mode" == "default" ]]; then
+        printf '\n  %sEnter%s · %s%s%s %s|%s %s0%s · %s取消%s\n' \
+          "$C_BRIGHT_YELLOW" "$C_BRIGHT_WHITE" \
+          "$([[ "$mode" == "keep" ]] && printf '保持' || printf '默认')" "$C_RESET" \
+          "$C_BRIGHT_WHITE" "$C_RESET" "$C_BRIGHT_YELLOW" "$C_BRIGHT_WHITE" "$C_RESET"
+      else
+        printf '\n  %s0%s · %s%s\n' "$C_BRIGHT_YELLOW" "$C_BRIGHT_WHITE" "$hint_text" "$C_RESET"
+      fi
     fi
   else
     printf '\n'
@@ -498,6 +514,16 @@ parse_socks5() {
   [[ "$username" =~ ^[A-Za-z0-9._~-]+$ && "$password" =~ ^[A-Za-z0-9._~-]+$ ]] ||
     die "SOCKS5 用户名和密码仅支持字母、数字及 ._~-。"
   printf '%s|%s|%s|%s\n' "$host" "$port" "$username" "$password"
+}
+
+node_outbound_value() {
+  local socks="$1" host port _
+  [[ -n "$socks" ]] || {
+    printf 'direct'
+    return 0
+  }
+  IFS=':' read -r host port _ <<<"$socks"
+  printf '%s:%s' "$host" "$port"
 }
 
 ensure_nodes_config() {
@@ -1263,9 +1289,12 @@ health_check() {
 }
 
 prompt_install_values() {
-  local value endpoint core_choice
+  local value endpoint core_choice page_mode="cancel"
+  [[ -n "$ARGO_TOKEN$ARGO_DOMAIN" ]] && page_mode="keep"
+  brand "${PROJECT_NAME} · 安装配置" "$page_mode"
+  subsection "配置输入"
   if [[ -n "$ARGO_TOKEN" ]]; then
-    read_input "Argo Token [已配置，留空保持]：" value
+    read_input "Argo Token [已配置；按 Enter 保持]：" value
   else
     read_input "Argo Token [必填]：" value
   fi
@@ -1274,7 +1303,7 @@ prompt_install_values() {
   valid_argo_token "$value" || die "Argo Token 格式不正确。"
   ARGO_TOKEN="$value"
   if [[ -n "$ARGO_DOMAIN" ]]; then
-    read_input "Argo 域名 [${ARGO_DOMAIN}；留空保持]：" value
+    read_input "Argo 域名 [${ARGO_DOMAIN}；按 Enter 保持]：" value
   else
     read_input "Argo 域名 [必填]：" value
   fi
@@ -1283,17 +1312,17 @@ prompt_install_values() {
   [[ -n "$ARGO_DOMAIN" ]] || die "Argo 域名不能为空。"
   [[ -n "$UUID" ]] || UUID="$(cat /proc/sys/kernel/random/uuid 2>/dev/null || true)"
   [[ -n "$UUID" ]] || UUID="$(openssl rand -hex 16 | sed 's/^\(........\)\(....\)\(....\)\(....\)\(............\)$/\1-\2-\3-\4-\5/')"
-  read_input "UUID [${UUID}；留空保持]：" value
+  read_input "UUID [${UUID}；按 Enter 保持]：" value
   is_exit_input "$value" && return 1
   UUID="${value:-$UUID}"
   [[ "${UUID,,}" =~ ^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$ ]] ||
     die "UUID 格式不正确。"
-  read_input "优选入口 [${SERVER}:${SERVER_PORT}；留空保持]：" endpoint
+  read_input "优选入口 [${SERVER}:${SERVER_PORT}；按 Enter 保持]：" endpoint
   is_exit_input "$endpoint" && return 1
   endpoint="${endpoint:-${SERVER}:${SERVER_PORT}}"
   parse_endpoint "$endpoint"
   valid_domain "$ARGO_DOMAIN" || die "Argo 域名格式不正确。"
-  read_input "代理核心 [1 Sing-box / 2 Xray；当前 $(core_label)；留空保持]：" core_choice
+  read_input "代理核心 [1 Sing-box / 2 Xray；当前 $(core_label)；按 Enter 保持]：" core_choice
   is_exit_input "$core_choice" && return 1
   case "${core_choice:-}" in
     "") CORE="${CORE:-sing-box}" ;;
@@ -1698,7 +1727,9 @@ apply_runtime_config() {
 
 list_node_profiles() {
   local tag protocol path port socks
-  printf '%s%s标签            协议     WS 路径             端口   出站%s\n' \
+  printf '\n'
+  subsection "节点列表"
+  printf '%s%s标签            协议     WS 路径             端口   出站 IP%s\n' \
     "$C_BOLD" "$C_BRIGHT_CYAN" "$C_RESET"
   printf '%s%s%s\n' "$C_DIM" '--------------  -------  ------------------  -----  ------------' "$C_RESET"
   while IFS='|' read -r tag protocol path port socks; do
@@ -1706,7 +1737,7 @@ list_node_profiles() {
     pad_right "$(protocol_label "$protocol")" 7; printf '%s  %s' "$C_RESET" "$C_BRIGHT_WHITE"; pad_right "$path" 18
     printf '%s  %s' "$C_RESET" "$C_BRIGHT_YELLOW"; pad_right "$port" 5; printf '%s  ' "$C_RESET"
     if [[ -n "$socks" ]]; then
-      printf '%sSOCKS5%s\n' "$C_BRIGHT_CYAN" "$C_RESET"
+      printf '%s%s%s\n' "$C_BRIGHT_CYAN" "$(node_outbound_value "$socks")" "$C_RESET"
     else
       printf '%sdirect%s\n' "$C_BRIGHT_GREEN" "$C_RESET"
     fi
@@ -1726,7 +1757,7 @@ add_node_profile() {
   protocol="${protocol,,}"
   read_input "WS 路径 [以 / 开头]：" path
   is_exit_input "$path" && { cancel_config_change; return 0; }
-  read_input "监听端口 [${default_port}]：" port
+  read_input "监听端口 [${default_port}；按 Enter 使用默认]：" port
   is_exit_input "$port" && { cancel_config_change; return 0; }
   port="${port:-$default_port}"
   read_input "SOCKS5 出站 [主机:端口:用户名:密码，留空直连]：" socks
@@ -1746,9 +1777,12 @@ add_node_profile() {
 
 change_origin_port() {
   local value temp next_port
-  brand "${PROJECT_NAME} · Argo Tunnel 回源端口" cancel
+  brand "${PROJECT_NAME} · Argo Tunnel 回源端口" keep
+  subsection "当前配置"
+  key_value "回源端口" "$ORIGIN_PORT"
+  section "修改配置"
   begin_config_change
-  read_input "Argo Tunnel 回源端口 [${ORIGIN_PORT}；留空保持]：" value
+  read_input "Argo Tunnel 回源端口 [${ORIGIN_PORT}；按 Enter 保持]：" value
   is_exit_input "$value" && { cancel_config_change; return 0; }
   value="${value:-$ORIGIN_PORT}"
   valid_port "$value" || die "端口格式错误。"
@@ -1768,6 +1802,7 @@ delete_node_profile() {
   local tag temp answer
   brand "${PROJECT_NAME} · 删除节点" cancel
   list_node_profiles
+  section "删除操作"
   begin_config_change
   read_input "节点标签：" tag
   is_exit_input "$tag" && { cancel_config_change; return 0; }
@@ -1786,8 +1821,9 @@ delete_node_profile() {
 
 edit_node_profile() {
   local wanted tag protocol path port socks new_tag new_protocol new_path new_port new_socks temp
-  brand "${PROJECT_NAME} · 修改节点" cancel
+  brand "${PROJECT_NAME} · 修改节点" keep
   list_node_profiles
+  section "选择节点"
   read_input "节点标签：" wanted
   is_exit_input "$wanted" && { return_notice; return 0; }
   while IFS='|' read -r tag protocol path port socks; do
@@ -1796,15 +1832,15 @@ edit_node_profile() {
   [[ "${tag:-}" == "$wanted" ]] || die "未找到节点标签：${wanted}"
   begin_config_change
   section "新的节点参数"
-  read_input "节点标签 [${tag}；留空保持]：" new_tag
+  read_input "节点标签 [${tag}；按 Enter 保持]：" new_tag
   is_exit_input "$new_tag" && { cancel_config_change; return 0; }
-  read_input "节点协议 [${protocol}；留空保持]：" new_protocol
+  read_input "节点协议 [${protocol}；按 Enter 保持]：" new_protocol
   is_exit_input "$new_protocol" && { cancel_config_change; return 0; }
-  read_input "WS 路径 [${path}；留空保持]：" new_path
+  read_input "WS 路径 [${path}；按 Enter 保持]：" new_path
   is_exit_input "$new_path" && { cancel_config_change; return 0; }
-  read_input "监听端口 [${port}；留空保持]：" new_port
+  read_input "监听端口 [${port}；按 Enter 保持]：" new_port
   is_exit_input "$new_port" && { cancel_config_change; return 0; }
-  read_input "SOCKS5 [$( [[ -n "$socks" ]] && printf '已配置' || printf 'direct')] [留空保持，- 为 direct]：" new_socks
+  read_input "SOCKS5 [$(node_outbound_value "$socks")；按 Enter 保持，- 为 direct]：" new_socks
   is_exit_input "$new_socks" && { cancel_config_change; return 0; }
   tag="${new_tag:-$tag}"; protocol="${new_protocol:-$protocol}"
   protocol="${protocol,,}"; path="${new_path:-$path}"; port="${new_port:-$port}"
@@ -1844,11 +1880,17 @@ configure_warp() {
     read_choice "请选择："; choice="$REPLY"
     case "$choice" in
       1)
-        read_input "WARP 本地 SOCKS5 端口 [${WARP_PROXY_PORT}；留空保持]：" port
+        brand "${PROJECT_NAME} · WARP 配置" keep
+        subsection "当前配置"
+        state_value "WARP" "$(warp_status)"
+        key_value "代理端口" "$WARP_PROXY_PORT"
+        key_value "目标域名" "${WARP_DOMAINS:-无}"
+        section "修改配置"
+        read_input "WARP 本地 SOCKS5 端口 [${WARP_PROXY_PORT}；按 Enter 保持]：" port
         is_exit_input "$port" && { return_notice; continue; }
         port="${port:-$WARP_PROXY_PORT}"
         valid_port "$port" || die "WARP 代理端口无效。"
-        read_input "WARP 目标 [网址或域名，逗号分隔；${WARP_DOMAINS:-无}；留空保持]：" targets
+        read_input "WARP 目标 [网址或域名，逗号分隔；${WARP_DOMAINS:-无}；按 Enter 保持]：" targets
         is_exit_input "$targets" && { return_notice; continue; }
         targets="${targets:-$WARP_DOMAINS}"
         targets="$(normalize_warp_domains "$targets")"
@@ -1908,12 +1950,11 @@ switch_proxy_core() {
   local choice requested
   require_root
   load_env
-  brand "${PROJECT_NAME} · 核心切换" cancel
-  subsection "当前状态"
+  brand "${PROJECT_NAME} · 核心配置" cancel
+  subsection "核心配置"
   state_value "代理核心" "$(service_status "$SING_SERVICE") · $(core_label)"
-  subsection "配置范围"
-  key_value "共享配置" "环境配置 · 节点定义 · Nginx · 订阅"
-  key_value "保留配置" "sing-box.json · xray.json"
+  key_value "共享范围" "环境配置 · 节点定义 · Nginx · 订阅"
+  key_value "保留文件" "sing-box.json · xray.json"
   subsection "切换操作"
   menu_item 1 "Sing-box"
   menu_item 2 "Xray"
@@ -1962,16 +2003,16 @@ manage_config() {
     read_choice "请选择："; choice="$REPLY"
     case "$choice" in
       1)
-        brand "${PROJECT_NAME} · Token / Argo 域名" cancel
+        brand "${PROJECT_NAME} · Token / Argo 域名" keep
         subsection "当前配置"
         key_value "Argo 域名" "$ARGO_DOMAIN"
         key_value "Token 状态" "$([[ -n "$ARGO_TOKEN" ]] && printf '已配置' || printf '未配置')"
         section "修改配置"
         begin_config_change
-        read_input "Argo Token [已配置，留空保持]：" value
+        read_input "Argo Token [已配置；按 Enter 保持]：" value
         is_exit_input "$value" && { cancel_config_change; continue; }
         ARGO_TOKEN="${value:-$ARGO_TOKEN}"
-        read_input "Argo 域名 [${ARGO_DOMAIN}；留空保持]：" value
+        read_input "Argo 域名 [${ARGO_DOMAIN}；按 Enter 保持]：" value
         is_exit_input "$value" && { cancel_config_change; continue; }
         ARGO_DOMAIN="${value:-$ARGO_DOMAIN}"
         valid_argo_token "$ARGO_TOKEN" && [[ "$ARGO_DOMAIN" =~ ^[A-Za-z0-9.-]+$ ]] ||
@@ -1979,10 +2020,12 @@ manage_config() {
         apply_runtime_config
         ;;
       2)
-        brand "${PROJECT_NAME} · Cloudflare 优选入口" cancel
+        brand "${PROJECT_NAME} · Cloudflare 优选入口" keep
+        subsection "当前配置"
         endpoint_value "当前入口" "$SERVER" "$SERVER_PORT"
+        section "修改配置"
         begin_config_change
-        read_input "优选入口 [${SERVER}:${SERVER_PORT}；留空保持]：" endpoint
+        read_input "优选入口 [${SERVER}:${SERVER_PORT}；按 Enter 保持]：" endpoint
         is_exit_input "$endpoint" && { cancel_config_change; continue; }
         endpoint="${endpoint:-${SERVER}:${SERVER_PORT}}"
         parse_endpoint "$endpoint"
@@ -1990,10 +2033,12 @@ manage_config() {
         ;;
       3) change_origin_port ;;
       4)
-        brand "${PROJECT_NAME} · 全局 UUID" cancel
-        key_value "当前 UUID" "$UUID"
+        brand "${PROJECT_NAME} · 全局 UUID" keep
+        subsection "当前配置"
+        key_value "全局 UUID" "$UUID"
+        section "修改配置"
         begin_config_change
-        read_input "全局 UUID [${UUID}；留空保持]：" value
+        read_input "全局 UUID [${UUID}；按 Enter 保持]：" value
         is_exit_input "$value" && { cancel_config_change; continue; }
         value="${value:-$UUID}"
         valid_uuid "$value" || die "UUID 格式错误。"
@@ -2016,13 +2061,13 @@ backup_project() {
   require_root
   [[ -f "$MANAGED_FILE" ]] || die "缺少项目所有权标记，拒绝备份。"
   [[ -f "$NODES_CONFIG" ]] || die "节点配置不存在：${NODES_CONFIG}"
-  brand "${PROJECT_NAME} · 备份节点配置"
+  brand "${PROJECT_NAME} · 备份节点配置" default
   subsection "备份配置"
   key_value "节点配置" "$NODES_CONFIG"
   key_value "默认目录" "$BACKUP_DIR"
   validate_nodes_config
   if [[ -z "$output" ]]; then
-    read_input "备份位置 [目录或 .tar.gz；${BACKUP_DIR}]：" output
+    read_input "备份位置 [目录或 .tar.gz；${BACKUP_DIR}；按 Enter 使用默认]：" output
     is_exit_input "$output" && { return_notice; return 0; }
     output="${output:-$BACKUP_DIR}"
   fi
@@ -2089,9 +2134,11 @@ validate_backup_archive() {
 restore_project() {
   local archive="${1:-}" stage archive_copy latest nodes_source
   require_root
-  brand "${PROJECT_NAME} · 恢复节点配置"
+  brand "${PROJECT_NAME} · 恢复节点配置" default
+  subsection "恢复来源"
+  key_value "默认目录" "$BACKUP_DIR"
   if [[ -z "$archive" ]]; then
-    read_input "备份来源 [文件或目录；留空使用 ${BACKUP_DIR} 最新备份]：" archive
+    read_input "备份来源 [文件或目录；按 Enter 使用 ${BACKUP_DIR} 最新备份]：" archive
     is_exit_input "$archive" && { return_notice; return 0; }
     archive="${archive:-$BACKUP_DIR}"
   fi
@@ -2197,9 +2244,10 @@ doctor() {
     hostname -I 2>/dev/null | awk '{print $1}')"
   memory="$(free -m | awk '/^Mem:/{printf "%s/%s MiB (%.0f%%)",$3,$2,$3*100/$2}')"
   brand "${PROJECT_NAME} · 运行诊断"
-  subsection "系统状态"
+  subsection "系统与组件状态"
   ip_value "公网 IP" "${ip:-未知}"
   key_value "脚本版本" "v${VERSION}"
+  key_value "组件版本" "$(component_versions)"
   key_value "内存" "${memory:-未知}"
   endpoint_value "优选入口" "${SERVER:-未知}" "${SERVER_PORT:-未知}"
   key_value "Argo 回源" "127.0.0.1:${ORIGIN_PORT}"
@@ -2229,7 +2277,6 @@ doctor() {
   if systemctl is-active --quiet nginx; then green "Nginx 运行中。"; else red "Nginx 未运行。"; failed=1; fi
   if systemctl is-active --quiet "$SING_SERVICE"; then green "$(core_label) Core 运行中。"; else red "$(core_label) Core 未运行。"; failed=1; fi
   if systemctl is-active --quiet "$ARGO_SERVICE"; then green "Argo Tunnel 运行中。"; else red "Argo Tunnel 未运行。"; failed=1; fi
-  key_value "组件版本" "$(component_versions)"
   if [[ "$WARP_ENABLED" == "1" ]]; then
     if systemctl is-active --quiet warp-svc &&
       ss -lntH "sport = :${WARP_PROXY_PORT}" | grep -q .; then
