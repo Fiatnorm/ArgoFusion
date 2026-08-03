@@ -42,7 +42,7 @@
 
 其中协议仅允许 `vless`、`vmess`、`trojan`；SOCKS5 留空表示 direct，否则格式为 `主机:端口:用户名:密码`。标签、WS 路径和本地端口必须全局唯一。改变该格式时必须同时迁移旧文件，不能静默破坏已有节点。
 
-生成文件包括原始节点链接、Base64、Clash/Mihomo、sing-box 与自动适配订阅 QR；活动订阅入口仅保留自适应、Base64、Clash/Mihomo、Sing-box、原始节点链接五类。Clash Provider 与 Shadowrocket 文件仅可作为迁移、快照回滚和卸载清理的废弃文件，不得重新生成或公开路由。派生数据应由 `generate_nodes()` 统一重建，不应成为独立配置源。`config/` 与 `data/` 必须保持 `700`，但 `/etc/afs/subscriptions/` 必须为 `755`，否则 Nginx 工作进程无法读取 `alias` 订阅文件而返回 403。Clash/Mihomo 三种 WS 节点必须显式启用 UDP，并使用 Chrome 指纹和 `http/1.1` ALPN；VLESS、VMess 订阅必须保留 XUDP（`packetEncoding=xudp`、`packet-encoding: xudp`、`packet_encoding: "xudp"`）。sing-box TLS 保持核心默认版本协商，WS `headers.Host` 必须是字符串。
+生成文件包括原始节点订阅、Base64、Clash/Mihomo、sing-box 与自动适配订阅 QR；活动订阅入口仅保留自适应、Base64、Clash/Mihomo、Sing-box、原始节点订阅五类。Clash Provider 与 Shadowrocket 文件仅可作为迁移、快照回滚和卸载清理的废弃文件，不得重新生成或公开路由。派生数据应由 `generate_nodes()` 统一重建，不应成为独立配置源。`config/` 与 `data/` 必须保持 `700`，但 `/etc/afs/subscriptions/` 必须为 `755`，否则 Nginx 工作进程无法读取 `alias` 订阅文件而返回 403。Clash/Mihomo 三种 WS 节点必须显式启用 UDP，并使用 Chrome 指纹和 `http/1.1` ALPN；VLESS、VMess 订阅必须保留 XUDP（`packetEncoding=xudp`、`packet-encoding: xudp`、`packet_encoding: "xudp"`）。sing-box TLS 保持核心默认版本协商，WS `headers.Host` 必须是字符串。
 
 ## 关键函数职责
 
@@ -104,7 +104,7 @@
 ## 交互和运行语义
 
 - 优选入口使用单行 `域名/IP:端口` 输入；IPv6 使用 `[地址]:端口`。
-- `af -n` 必须先输出订阅面板链接，再按自适应、原始节点链接、Base64、Clash/Mihomo、Sing-box 的顺序输出全部订阅链接、唯一一张自动适配订阅 QR 和明文节点；链接标签必须对齐，节点仅显示编号和标签。不得为其他订阅或单个节点重复输出 QR。自动适配订阅 QR 同时显示在网页订阅面板中，并作为单独的 `/auto-qr.svg` 订阅面板资源提供。
+- `af -n` 必须先输出订阅面板链接，再按自适应、原始节点订阅、Base64、Clash/Mihomo、Sing-box 的顺序输出全部订阅链接、唯一一张自动适配订阅 QR 和明文节点；链接标签必须对齐，节点仅显示编号和标签。不得为其他订阅或单个节点重复输出 QR。自动适配订阅 QR 同时显示在网页订阅面板中，并作为单独的 `/auto-qr.svg` 订阅面板资源提供。
 - 节点连接地址使用优选入口，WebSocket Host 与 TLS SNI 使用 Argo 域名。
 - 修改 Token 或优选入口后，应重新生成节点并执行健康检查。
 - 健康检查必须测试 `/etc/afs/config/nodes.conf` 中的全部 WS 路径，默认包括 `/argo-vl`、`/argo-vm`、`/argo-tr`。
@@ -130,7 +130,7 @@
 - 终端状态行显示 IPv6 优选入口时必须保留 `[地址]:端口` 形式；订阅 URL 按 UI 设计稿使用白色下划线，不输出额外逐条分隔线。
 - `TERMINAL_UI_DESIGN.md` 是终端输出的视觉合同；更新终端 UI 时必须同步脚本、该设计稿和 README。当前基准采用 ArgoFusion 斜体字标、64 列分隔线、ANSI `97` 亮白正文、`◆ / ▸ / ✓ / ! / ✗ / • / ›` 图标语义，以及 `main/back/cancel/none` 四种页面提示模式；提示固定在页面标题右端显示为“0 · 退出 / 返回 / 取消”，其中 `0` 为亮黄、说明为亮白。输入统一为“对象 `[约束/默认值]`：”，已有配置必须展示当前值并标注“留空保持”；新安装的必填项仍须拒绝留空。确认统一为“确认动作？`[y/N]`：”，诊断行必须明确展示“已通过 / 无效 / 未运行”。
 - 分区和 64 列分隔线使用亮蓝，键名与字标使用亮青，页面标题与输入使用亮洋红。主菜单固定为“节点订阅、服务启停、核心切换、参数配置、运行诊断、项目安装、组件更新、备份恢复、BBR / DD、项目卸载”，不得改回解释性长句；服务重启属于“服务启停”的子操作，不提供独立短命令；`menu_item()` 的功能列补齐到 28 个显示宽度。
-- 主面板状态顺序固定为“Argo Tunnel、代理核心、WARP、Argo 域名、优选入口、Argo 回源、组件版本”；只读页不显示 `0` 操作提示，普通返回静默，取消配置明确提示但不得写入半成品。参数配置中的节点表固定使用 14/7/18/5/12 显示宽度，协议显示为 VLESS、VMess、Trojan，并且 SOCKS5 只能展示 `direct`、`SOCKS5` 或主机端口，绝不输出用户名或密码；`af -n` 节点链接块仅显示编号、标签和 URI。订阅中心保持白底蓝字，指定格式卡片顺序固定为“原始节点链接、Base64、Clash/Mihomo、Sing-box”。
+- 主面板状态顺序固定为“Argo Tunnel、代理核心、WARP、Argo 域名、优选入口、Argo 回源、组件版本”；只读页不显示 `0` 操作提示，普通返回静默，取消配置明确提示但不得写入半成品。参数配置中的节点表固定使用 14/7/18/5/12 显示宽度，协议显示为 VLESS、VMess、Trojan，并且 SOCKS5 只能展示 `direct`、`SOCKS5` 或主机端口，绝不输出用户名或密码；`af -n` 节点链接块仅显示编号、标签和 URI。订阅中心保持白底蓝字，指定格式卡片顺序固定为“原始节点订阅、Base64、Clash/Mihomo、Sing-box”。
 - `af -x` 必须诊断 `config`、`data` 的 `700` 与 `subscriptions` 的 `755`；健康时汇总最近日志，出现 ERROR 或诊断失败时才展开相关日志。
 - UUID 订阅中心仍通过精确 `return 200` 路由提供；内联 HTML 的 UTF-8 单行长度必须低于 `3500` 字节，并由 `write_nginx_config()` 在 `nginx -t` 前强制检查，避免 Nginx 报出 `too long parameter`。
 - 不要修改用户已有的无关文件或清理未跟踪的 `sba/` 对照树。
