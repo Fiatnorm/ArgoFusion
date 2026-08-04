@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-VERSION="2.14.20"
+VERSION="2.14.21"
 PROJECT_NAME="ArgoFusion"
 PROJECT_CODE="AFS"
 COMMAND_NAME="af"
@@ -87,6 +87,14 @@ pad_right() {
   ((pad < 0)) && pad=0
   printf '%s%*s' "$text" "$pad" ''
 }
+fit_text() {
+  local text="$1" target="$2"
+  if (( $(display_width "$text") > target )); then
+    printf '%s~' "${text:0:$((target - 1))}"
+  else
+    pad_right "$text" "$target"
+  fi
+}
 ui_page() {
   local title="$1" mode="${2:-none}" hint="" hint_text="" title_width hint_width padding
   case "$mode" in
@@ -151,14 +159,11 @@ public_ipv4() {
     hostname -I 2>/dev/null | awk '{print $1}' || true
 }
 node_overview() {
-  [[ -s "$NODES_CONFIG" ]] || { printf '0 个'; return; }
+  [[ -s "$NODES_CONFIG" ]] || { printf 'Vless 0 · Vmess 0 · Trojan 0'; return; }
   awk -F'|' '
-    {count++; protocols[$2]++}
+    {protocols[$2]++}
     END {
-      printf "%d 个", count
-      if (protocols["vless"]) printf " · VLESS %d", protocols["vless"]
-      if (protocols["vmess"]) printf " · VMess %d", protocols["vmess"]
-      if (protocols["trojan"]) printf " · Trojan %d", protocols["trojan"]
+      printf "Vless %d · Vmess %d · Trojan %d", protocols["vless"], protocols["vmess"], protocols["trojan"]
     }
   ' "$NODES_CONFIG"
 }
@@ -272,7 +277,7 @@ state_value() {
     status="${BASH_REMATCH[1]}"; core="${BASH_REMATCH[2]}"
     printf '%s  %s%s%s %s·%s %s%s%s\n' "$C_RESET" "$color" "$status" "$C_RESET" \
       "$C_BRIGHT_WHITE" "$C_RESET" "$C_BRIGHT_MAGENTA" "$core" "$C_RESET"
-  elif [[ "$1" == "WARP" && "$value" =~ ^([^·]+)[[:space:]]·[[:space:]](127\.0\.0\.1:[0-9]+)$ ]]; then
+  elif [[ ("$1" == "WARP" || "$1" == "WARP 分流") && "$value" =~ ^([^·]+)[[:space:]]·[[:space:]](127\.0\.0\.1:[0-9]+)$ ]]; then
     status="${BASH_REMATCH[1]}"; endpoint="${BASH_REMATCH[2]}"
     printf '%s  %s%s%s %s·%s %s%s%s\n' "$C_RESET" "$color" "$status" "$C_RESET" \
       "$C_BRIGHT_WHITE" "$C_RESET" "$C_BRIGHT_WHITE" "$endpoint" "$C_RESET"
@@ -312,8 +317,8 @@ menu_hint() {
 }
 protocol_label() {
   case "$1" in
-    vless) printf 'VLESS' ;;
-    vmess) printf 'VMess' ;;
+    vless) printf 'Vless' ;;
+    vmess) printf 'Vmess' ;;
     trojan) printf 'Trojan' ;;
     *) printf '%s' "$1" ;;
   esac
@@ -851,8 +856,17 @@ sing_box_check() {
 }
 
 xray_check() {
-  local binary="${1:-${BIN_DIR}/xray}" config="${2:-$XRAY_CONFIG}"
-  "$binary" run -test -c "$config"
+  local binary="${1:-${BIN_DIR}/xray}" config="${2:-$XRAY_CONFIG}" output rc
+  output="$(mktemp)"
+  if "$binary" run -test -c "$config" >"$output" 2>&1; then
+    rm -f "$output"
+    return 0
+  else
+    rc=$?
+    filter_journal_noise <"$output" >&2 || true
+    rm -f "$output"
+    return "$rc"
+  fi
 }
 
 core_check() {
@@ -1717,13 +1731,13 @@ apply_runtime_config() {
     core-switch) services=(nginx "$SING_SERVICE") ;;
     *) die "未知配置应用模式：${mode}" ;;
   esac
-  info "正在应用配置并重启服务..."
+  [[ "$mode" == "core-switch" ]] || info "正在应用配置并重启服务..."
   if save_env && write_available_core_configs && write_nginx_config && write_services &&
     generate_nodes &&
     systemctl daemon-reload &&
     systemctl restart "${services[@]}" && wait_for_services "${services[@]}"; then
     rm -rf "$snapshot"
-    green "配置已生效。"
+    [[ "$mode" == "core-switch" ]] || green "配置已生效。"
     return 0
   fi
   red "配置验证失败，正在恢复。"
@@ -1753,21 +1767,25 @@ apply_runtime_config() {
 }
 
 list_node_profiles() {
-  local tag protocol path port socks direct_ip
+  local mode="${1:-compact}" tag protocol path port socks direct_ip
   direct_ip="$(public_ipv4)"
+  if [[ "$mode" == "spaced" ]]; then
+    printf '\n'
+    UI_TIGHT_SECTION=1
+  fi
   subsection "节点列表"
   printf '%s%s' "$C_BOLD" "$C_BRIGHT_CYAN"
-  pad_right "标签" 18; printf '  '; pad_right "协议" 8; printf '  '; pad_right "WS 路径" 24
-  printf '  '; pad_right "端口" 7; printf '  %s%s\n' "出站 IP" "$C_RESET"
-  printf '%s%s%s\n' "$C_DIM" '------------------  --------  ------------------------  -------  ---------------------' "$C_RESET"
+  pad_right "标签" 13; printf '  '; pad_right "协议" 6; printf '  '; pad_right "WS 路径" 14
+  printf '  '; pad_right "端口" 5; printf '  %s%s\n' "出站 IP" "$C_RESET"
+  printf '%s%s%s\n' "$C_DIM" '-------------  ------  --------------  -----  ------------------' "$C_RESET"
   while IFS='|' read -r tag protocol path port socks; do
-    printf '%s' "$C_BRIGHT_WHITE"; pad_right "$tag" 18; printf '%s  %s' "$C_RESET" "$C_BRIGHT_MAGENTA"
-    pad_right "$(protocol_label "$protocol")" 8; printf '%s  %s' "$C_RESET" "$C_BRIGHT_WHITE"; pad_right "$path" 24
-    printf '%s  %s' "$C_RESET" "$C_BRIGHT_YELLOW"; pad_right "$port" 7; printf '%s  ' "$C_RESET"
+    printf '%s' "$C_BRIGHT_WHITE"; fit_text "$tag" 13; printf '%s  %s' "$C_RESET" "$C_BRIGHT_BLUE"
+    fit_text "$(protocol_label "$protocol")" 6; printf '%s  %s' "$C_RESET" "$C_BRIGHT_WHITE"; fit_text "$path" 14
+    printf '%s  %s' "$C_RESET" "$C_BRIGHT_YELLOW"; fit_text "$port" 5; printf '%s  %s' "$C_RESET" "$C_BRIGHT_MAGENTA"
     if [[ -n "$socks" ]]; then
-      printf '%s%s%s\n' "$C_BRIGHT_CYAN" "$(node_outbound_value "$socks")" "$C_RESET"
+      fit_text "$(node_outbound_value "$socks")" 18; printf '%s\n' "$C_RESET"
     else
-      printf '%s%s%s\n' "$C_BRIGHT_GREEN" "${direct_ip:-未知}" "$C_RESET"
+      fit_text "${direct_ip:-未知}" 18; printf '%s\n' "$C_RESET"
     fi
   done <"$NODES_CONFIG"
 }
@@ -1982,6 +2000,7 @@ configure_warp() {
         key_value "已有域名" "$WARP_DOMAINS"
         read_input "新增目标 [网址或域名，可用逗号分隔]：" targets
         is_exit_input "$targets" && { return_notice; continue; }
+        [[ -n "$targets" ]] || continue
         targets="$(normalize_warp_domains "$targets")"
         begin_config_change
         WARP_DOMAINS="$(normalize_warp_domains "${WARP_DOMAINS},${targets}")"
@@ -1991,6 +2010,7 @@ configure_warp() {
         [[ "$WARP_ENABLED" == "1" ]] || die "WARP 分流尚未启用。"
         read_input "要删除的目标：" domain
         is_exit_input "$domain" && { return_notice; continue; }
+        [[ -n "$domain" ]] || continue
         normalized="$(normalize_warp_domains "$domain")"
         [[ "$normalized" != *,* ]] || die "每次只能删除一个域名。"
         output=""; old_ifs="$IFS"; IFS=','
@@ -2019,35 +2039,39 @@ configure_warp() {
 }
 
 switch_proxy_core() {
-  local choice requested
+  local choice requested previous_core
   require_root
-  load_env
-  brand "${PROJECT_NAME} · 核心配置" cancel
-  subsection "核心配置"
-  state_value "代理核心" "$(service_status "$SING_SERVICE") · $(core_label)"
-  key_value "共享范围" "环境配置 · 节点定义 · Nginx · 订阅"
-  key_value "保留文件" "sing-box.json · xray.json"
-  subsection "切换操作"
-  menu_item 1 "Sing-box"
-  menu_item 2 "Xray"
-  menu_item 0 "取消操作"
-  ui_line
-  read_choice "请选择："; choice="$REPLY"
-  is_exit_input "$choice" && { return_notice; return 0; }
-  case "$choice" in
-    1) requested="sing-box" ;;
-    2) requested="xray" ;;
-    *) yellow "核心选项无效，请输入 1、2 或 0。"; return 0 ;;
-  esac
-  if [[ "$requested" == "$CORE" ]]; then
-    yellow "当前已使用 $(core_label)，无需切换。"
-    return 0
-  fi
-  ensure_core_binary "$requested"
-  begin_config_change
-  CORE="$requested"
-  apply_runtime_config core-switch
-  green "已切换到 $(core_label)，两套核心配置均已保留。"
+  while true; do
+    load_env
+    brand "${PROJECT_NAME} · 核心配置" back
+    subsection "核心配置"
+    state_value "代理核心" "$(service_status "$SING_SERVICE") · $(core_label)"
+    key_value "共享范围" "环境配置 · 节点定义 · Nginx · 订阅"
+    key_value "保留文件" "sing-box.json · xray.json"
+    subsection "切换操作"
+    menu_item 1 "Sing-box"
+    menu_item 2 "Xray"
+    menu_item 0 "返回上级"
+    ui_line
+    read_choice "请选择："; choice="$REPLY"
+    case "$choice" in
+      1) requested="sing-box" ;;
+      2) requested="xray" ;;
+      0) return ;;
+      *) yellow "核心选项无效，请输入 1、2 或 0。"; continue ;;
+    esac
+    if [[ "$requested" == "$CORE" ]]; then
+      yellow "当前已使用 $(core_label)，无需切换。"
+      continue
+    fi
+    previous_core="$(core_label)"
+    ensure_core_binary "$requested"
+    begin_config_change
+    CORE="$requested"
+    info "正在切换代理核心..."
+    apply_runtime_config core-switch
+    green "代理核心已切换：${previous_core} → $(core_label)。"
+  done
 }
 
 manage_config() {
@@ -2117,7 +2141,7 @@ manage_config() {
         UUID="$value"
         apply_runtime_config
         ;;
-      5) list_node_profiles ;;
+      5) list_node_profiles spaced ;;
       6) add_node_profile ;;
       7) edit_node_profile ;;
       8) delete_node_profile ;;
@@ -2417,7 +2441,7 @@ show_nodes() {
     IFS= read -r node <&3 || break
     ((index+=1))
     ((index > 1)) && printf '\n'
-    printf '%s%s[%02d]%s %s%s%s %s（%s+WS+TLS）%s\n%s%s%s\n' \
+    printf '%s%s[%02d]%s %s%s%s %s· %s+WS+TLS%s\n%s%s%s\n' \
       "$C_BOLD" "$C_BRIGHT_CYAN" "$index" "$C_RESET" "$C_BRIGHT_MAGENTA" "$tag" "$C_RESET" \
       "$C_BRIGHT_WHITE" "$(protocol_label "$protocol")" "$C_RESET" \
       "$C_BRIGHT_WHITE" "$node" "$C_RESET"
@@ -2578,8 +2602,8 @@ restart_services() {
   brand "${PROJECT_NAME} · 服务重启"
   subsection "重启范围"
   key_value "重启服务" "Nginx · $(core_label) · Argo Tunnel"
-  ui_line
   info "正在重启全部服务..."
+  systemctl daemon-reload
   systemctl restart nginx "$SING_SERVICE" "$ARGO_SERVICE"
   green "全部服务已重启。"
 }
@@ -2682,7 +2706,7 @@ menu() {
     subsection "运行状态"
     state_value "Argo Tunnel" "$(service_status "$ARGO_SERVICE")"
     state_value "代理核心" "$(service_status "$SING_SERVICE") · $(core_label)"
-    state_value "WARP" "$(warp_status)"
+    state_value "WARP 分流" "$(warp_status)"
     key_value "节点概览" "$(node_overview)"
     if [[ -n "$ARGO_DOMAIN" ]]; then
       key_value "Argo 域名" "$ARGO_DOMAIN"
