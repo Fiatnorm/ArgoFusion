@@ -1,10 +1,10 @@
-# ArgoFusion AFS v2.14.21 · 终端 UI / 文案设计稿
+# ArgoFusion AFS v2.15.0 · 终端 UI / 文案设计稿
 
 > 设计依据：`ArgoFusion_AFS_v2.14.12_TERMINAL_UI_DESIGN_v3.md`
 >
 > 对照脚本：`argofusion.sh`
 >
-> 适用版本：ArgoFusion · AFS v2.14.21
+> 适用版本：ArgoFusion · AFS v2.15.0
 
 核心目标：**术语准确、文案等宽、布局工整、状态鲜明、交互精炼。** 本文是终端输出的唯一视觉合同；更新可见终端输出时，必须同步脚本、本文、README 与 `AGENTS.md`。
 
@@ -14,7 +14,7 @@
 
 1. 主菜单中文功能名固定为四个汉字（八个显示宽度）；`BBR / DD` 与其视觉等宽。
 2. 一级菜单仅说明功能，组件名称放在状态页、子菜单与结果页。
-3. 使用实际术语：`Argo Tunnel`、`cloudflared`、`Sing-box`、`Xray`、`WARP`、`WS`、`WSS`、`SOCKS5`、`direct`、`AFS`。
+3. 使用实际术语：`Argo Tunnel`、`cloudflared`、`Sing-box`、`Xray`、`WARP`、`WS`、`XHTTP`、`WSS`、`SOCKS5`、`direct`、`AFS`。
 4. 状态输出只回答：什么组件、当前什么状态、操作是否成功。
 5. 正常导航静默返回；取消配置才明确说明配置没有变更。
 6. 输入项统一为“对象 `[约束/默认值]`：”；确认项统一为“确认 + 动作？`[Y/n]`：”，支持大小写，直接回车表示确认，不使用“请输入”“是否”等冗余起句。
@@ -73,6 +73,8 @@ Argo 回源
 组件版本
 ```
 
+节点概览固定显示 `Vless n · Vmess n · Trojan n · XHTTP n · SS n`，不显示总数。
+
 ```text
 ◆ ArgoFusion · 控制中心                              0 · 退出
 ----------------------------------------------------------------
@@ -108,9 +110,11 @@ Argo 回源
 [01] Argo-Vl · Vless+WS+TLS
 [02] Argo-Vm · Vmess+WS+TLS
 [03] Argo-Tr · Trojan+WS+TLS
+[04] Argo-Xh · Vless+XHTTP+TLS
+[05] Argo-Sh · Shadowsocks+WS+TLS
 ```
 
-`af -n` 的 `原始节点` 块显示编号、亮紫标签、`· 协议+WS+TLS` 类型和节点 URI，不显示 WS 路径或出站信息。终端协议统一显示为 `Vless`、`Vmess`、`Trojan`。参数配置中的节点表固定使用 `13 / 6 / 14 / 5 / 18` 显示宽度，总宽度不得超过 64 列；过长字段以 `~` 截断。协议使用亮蓝，直连与 SOCKS5 出站 IP/端口统一使用亮紫，不得暴露用户名或密码。仅从参数配置选择“查看节点”时在“节点列表”前留一行，添加、修改和删除节点页面不额外插入空行。
+`af -n` 的 `原始节点` 块显示编号、亮紫标签、完整协议/传输/TLS 类型和节点 URI，不显示传输路径或出站信息。终端协议统一显示为 `Vless`、`Vmess`、`Trojan`、`XHTTP`、`SS`；标题中的完整类型按上例显示。参数配置中的节点表固定使用 `13 / 6 / 14 / 5 / 18` 显示宽度，总宽度不得超过 64 列；过长字段以 `~` 截断，路径列标题为“传输路径”。协议使用亮蓝，直连与 SOCKS5 出站 IP/端口统一使用亮紫，不得暴露用户名或密码。仅从参数配置选择“查看节点”时在“节点列表”前留一行，添加、修改和删除节点页面不额外插入空行。
 
 ### 服务启停
 
@@ -165,7 +169,7 @@ WARP 页面名为 `WARP 分流`，主面板状态键固定为 `WARP 分流`，�
 
 ## 6. 术语与状态文案
 
-统一使用：`Argo Tunnel`、`cloudflared`、`Sing-box`、`Xray`、`WARP`、`Nginx`、`WS`、`WSS`、`SOCKS5`、`direct`、`AFS`、`Argo Token`、`Argo 域名`、`Argo 回源`、`优选入口`、`节点`、`订阅`。
+统一使用：`Argo Tunnel`、`cloudflared`、`Sing-box`、`Xray`、`WARP`、`Nginx`、`WS`、`XHTTP`、`WSS`、`SOCKS5`、`direct`、`AFS`、`Argo Token`、`Argo 域名`、`Argo 回源`、`优选入口`、`节点`、`订阅`。
 
 ```text
 Cloudflare Tunnel / Argo Tunnel  → Argo Tunnel
@@ -187,7 +191,7 @@ WebSocket / websocket / WS       → WS
 输入提示示例：
 
 ```text
-› 节点协议 [vless/vmess/trojan]：
+› 节点协议 [vless/vmess/trojan/vless-xhttp/shadowsocks]：
 › 优选入口 [example.com:443]：
 › 确认卸载 ArgoFusion？[Y/n]：
 ```
@@ -201,4 +205,4 @@ WebSocket / websocket / WS       → WS
 3. 颜色关闭环境不含 ANSI 控制符，仍能阅读标题、状态、菜单与输入提示。
 4. `af -n` 的协议大小写、订阅标签、唯一自动适配 QR 与节点表列宽符合本文。
 5. `af -x` 检查 `config/data` 的 `700`、`subscriptions` 的 `755`；健康时不展开日志。
-6. 涉及服务、Nginx、Cloudflare 或公网 WS 的改动仍须在真实 Debian/Ubuntu VPS 上进行运行时验证；静态检查不构成端到端证明。
+6. 涉及服务、Nginx、Cloudflare 或公网 WS/XHTTP 的改动仍须在真实 Debian/Ubuntu VPS 上进行运行时验证；静态检查不构成端到端证明。

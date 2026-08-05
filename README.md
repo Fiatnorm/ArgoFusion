@@ -1,11 +1,13 @@
-# ArgoFusion · AFS v2.14.21
+# ArgoFusion · AFS v2.15.0
 
 面向固定 Argo Token 隧道的中文轻量安装脚本，提供：
 
 - VLESS + WS + TLS：`/argo-vl`
 - VMess + WS + TLS：`/argo-vm`
 - Trojan + WS + TLS：`/argo-tr`
-- 安装及 `af -p` 均可切换 Sing-box / Xray 内核，三种 WS 节点、订阅与 Argo 接口保持一致
+- VLESS + XHTTP + TLS：`/argo-xh`
+- Shadowsocks + WS + TLS：`/argo-sh`
+- 安装及 `af -p` 均可切换 Sing-box / Xray 内核，五类节点、订阅与 Argo 接口保持一致
 - 自适应订阅、Base64 订阅、Clash/Mihomo 订阅、Sing-box 订阅、原始节点订阅五类入口
 
 TLS 由 Cloudflare 边缘终止；VPS 本机 Nginx 与所选代理内核仅监听回环地址。固定隧道必须在 Cloudflare Zero Trust 添加 Public Hostname，Service 指向 `http://localhost:3010`。Public Hostname 域名必须由安装者输入；Cloudflare 优选入口默认使用 `bestcf.cdn.fiatnorm.us.kg:443`，也可在安装或配置时修改。
@@ -23,7 +25,7 @@ chmod +x argofusion.sh
 sudo ./argofusion.sh -i
 ```
 
-安装时输入 Argo Token、Public Hostname，并以一行 `域名/IP:端口` 的形式输入 Cloudflare 优选入口，默认值为 `bestcf.cdn.fiatnorm.us.kg:443`。IPv6 使用 `[2001:db8::1]:443`。最后选择 `1` 使用默认 Sing-box，或选择 `2` 使用 Xray；安装后可在 `af` 主面板的“核心切换”随时切换，原有节点、订阅地址和 Argo 配置不变。
+安装时输入 Argo Token、Public Hostname，并以一行 `域名/IP:端口` 的形式输入 Cloudflare 优选入口，默认值为 `bestcf.cdn.fiatnorm.us.kg:443`。IPv6 使用 `[2001:db8::1]:443`。最后选择 `1` 使用默认 Sing-box，或选择 `2` 使用 Xray；安装后可在 `af` 主面板的“核心切换”随时切换，原有节点、订阅地址和 Argo 配置不变。Sing-box 固定使用 [Fiatnorm/argofusion-sing-box](https://github.com/Fiatnorm/argofusion-sing-box/releases) 下游内核，不再下载 SagerNet 官方通用构建。
 
 核心安装在项目私有目录：
 
@@ -45,6 +47,8 @@ sudo ./argofusion.sh -i
 升级时仅在旧目录存在 `managed` 所有权标记且 `/etc/afs` 不存在时迁移；`/etc/argofusion` 与 `/etc/asb` 若同时为真实目录，或任一旧目录缺少所有权标记，脚本会停止并要求人工核对。迁移会临时保留旧目录到 `/etc/afs` 的兼容链接；新服务验证通过后才移除旧服务和兼容链接，失败则恢复旧服务。
 
 迁移会先停止旧服务并等待节点端口释放，再启动新服务；若新服务启动失败，会先停用新服务再恢复旧服务，避免两套 sing-box 同时抢占节点端口。重新执行 v2.8.2 安装可修复旧版迁移失败后形成的新旧服务端口冲突。
+
+v2.15.0 将 Sing-box 下载源切换为 `Fiatnorm/argofusion-sing-box` 的固定稳定版 `v1.13.14-argofusion.2`，安装时同时校验 GitHub SHA256、下游版本和 `with_v2ray_api` 构建标签。新增 VLESS+XHTTP 与 Shadowsocks+WS 两类节点：新安装默认生成 `/argo-xh`、`/argo-sh`，既有安装保留原 `nodes.conf`，可从 `af -c` 添加；Sing-box/Xray 服务端配置、Nginx 分流、原始/Base64/Clash/Mihomo/Sing-box 订阅、节点列表和公网传输诊断同步支持。XHTTP 使用 ArgoX 的 CDN `mode=auto`、`h2,http/1.1` 与标准 VLESS URI，Nginx 使用边界安全前缀并关闭请求缓冲；Shadowsocks 使用 ArgoX 的 `chacha20-ietf-poly1305`、UUID 密码、`v2ray-plugin` 参数和 UoT，Sing-box 服务端的 UDP 经 UoT v2 承载。
 
 v2.14.21 收紧节点与操作输出：主面板使用“WARP 分流”，节点概览仅显示 `Vless / Vmess / Trojan` 数量；`af -n` 节点标题改为 `标签 · Vmess+WS+TLS`。节点表恢复为不超过 64 列的 13/6/14/5/18 排版，过长字段以 `~` 截断，协议为亮蓝、出站 IP 为亮紫；仅“查看节点”在列表前留空行。核心切换操作后停留在核心配置页，处理/成功文案与服务操作统一。Xray 成功配置检查静默并过滤已知弃用提醒；服务重启先执行 `daemon-reload` 且去除范围后的多余横线。WARP 添加或删除域名留空时不修改、不报错，直接返回 WARP 操作页。
 
@@ -153,9 +157,9 @@ v2.12.2 将首次安装和缺省环境配置中的 Cloudflare 优选入口统一
 v2.12.1 在 v2.12.0 的 UI 收敛基础上补强配置事务：派生节点/订阅文件纳入回滚快照，订阅生成或服务验证失败时恢复完整运行面，并集中校验已有环境文件；状态行对 IPv6 优选入口统一显示为 `[地址]:端口`。同时保持 64 列分隔线、白色下划线 URL、唯一自动适配 QR 和节点专用备份边界不变。
 v2.12.0 配置文件索引改为白色下划线 URL，不再输出整行链接分隔线；所有页面的分隔线后一级小标题均紧贴显示。Argo 回源地址保持白色，本机公网 IP 与优选入口 IP 保持亮紫色。
 
-下载具有总超时、重试、GitHub 反代回退和 GitHub Release SHA256 digest 校验；直连失败时优先使用 `github-proxy.fiatnorm.pp.ua`，随后才尝试其他反代。二进制还会执行基本版本检查。Sing-box、Xray 与 cloudflared 均固定为项目验证过的官方稳定发布，组件更新不会自动切换到预发布版本。
+下载具有总超时、重试、GitHub 反代回退和 GitHub Release SHA256 digest 校验；直连失败时优先使用 `github-proxy.fiatnorm.pp.ua`，随后才尝试其他反代。二进制还会执行版本和构建能力检查。Sing-box 固定为 ArgoFusion 下游稳定发布，Xray 与 cloudflared 固定为项目验证过的官方稳定发布，组件更新不会自动切换到预发布版本或普通构建标签。
 
-当前固定版本为 Sing-box `1.13.15`、Xray `26.3.27`、cloudflared `2026.7.3`；系统依赖继续从当前 Debian/Ubuntu 的官方稳定 APT 源安装，以保持发行版兼容性。后续执行 `af -v` 时，脚本只比较和更新当前选择的代理内核及 cloudflared 至上述固定稳定版本。
+当前固定版本为 ArgoFusion Sing-box `1.13.14-argofusion.2`、Xray `26.3.27`、cloudflared `2026.7.3`；系统依赖继续从当前 Debian/Ubuntu 的官方稳定 APT 源安装，以保持发行版兼容性。后续执行 `af -v` 时，脚本只比较和更新当前选择的代理内核及 cloudflared 至上述固定稳定版本。
 
 ## 是否需要反复拉取 GitHub
 
@@ -163,7 +167,7 @@ v2.12.0 配置文件索引改为白色下划线 URL，不再输出整行链接�
 
 以下操作仍会主动访问网络：
 
-- 首次安装或再次执行“安装 / 更新”：获取并校验最新 ArgoFusion 脚本，再下载并校验 Sing-box、Xray 与 cloudflared 官方发布物。
+- 首次安装或再次执行“安装 / 更新”：获取并校验最新 ArgoFusion 脚本，再下载并校验 ArgoFusion Sing-box 下游发布物、Xray 与 cloudflared 官方发布物。
 - `af -v`：比较固定的稳定组件版本，有更新并确认后下载核心。
 - 健康检查：访问 Cloudflare 公网入口。
 - 状态诊断：尝试访问 `api.ipify.org` 获取公网 IP，失败时自动使用本机地址。
@@ -226,11 +230,11 @@ sudo ./argofusion.sh -i
 
 ## 参数配置与分流
 
-`af -c` 用于修改 Token、Argo 域名、优选入口、Argo Tunnel 回源端口和全局 UUID，也可以添加、修改或删除 VLESS、VMess、Trojan 的 WS + TLS 节点。修改 Tunnel 回源端口时，节点监听端口从“回源端口 + 1”开始依次顺延；添加节点时默认使用当前最大监听端口的下一个端口。节点增改删会在每个输入步骤立即校验，格式、重复值或标签不存在时只要求重试当前步骤，不退出脚本。配置保存在 `/etc/afs/config/nodes.conf`。修改后还必须在 Cloudflare Public Hostname 中把 Service 同步为新的 `http://localhost:端口`。
+`af -c` 用于修改 Token、Argo 域名、优选入口、Argo Tunnel 回源端口和全局 UUID，也可以添加、修改或删除 `vless`、`vmess`、`trojan`、`vless-xhttp`、`shadowsocks` 节点。前三类和 Shadowsocks 使用 WS，`vless-xhttp` 使用 XHTTP；公网均由 Cloudflare 提供 TLS。修改 Tunnel 回源端口时，节点监听端口从“回源端口 + 1”开始依次顺延；添加节点时默认使用当前最大监听端口的下一个端口。节点增改删会在每个输入步骤立即校验，格式、重复值或标签不存在时只要求重试当前步骤，不退出脚本。配置保存在 `/etc/afs/config/nodes.conf`。修改后还必须在 Cloudflare Public Hostname 中把 Service 同步为新的 `http://localhost:端口`。
 
 ### 切换 Sing-box / Xray
 
-在 `af` 主面板选择“核心切换”，输入 `1` 为 Sing-box、`2` 为 Xray。两种核心共用 `/etc/afs/config/argofusion.env`、`/etc/afs/config/nodes.conf`、Nginx、Argo Tunnel 和订阅文件；`/etc/afs/config/sing-box.json` 与 `/etc/afs/config/xray.json` 始终分别保留。切换会先检查目标二进制，必要时从官方 Release 下载、校验并原子安装，然后同时重建和校验两套 JSON，最后重启同一个 `afs-core.service`。失败会恢复切换前的环境、运行配置、服务文件和订阅文件。
+在 `af` 主面板选择“核心切换”，输入 `1` 为 Sing-box、`2` 为 Xray。两种核心共用 `/etc/afs/config/argofusion.env`、`/etc/afs/config/nodes.conf`、Nginx、Argo Tunnel 和订阅文件；`/etc/afs/config/sing-box.json` 与 `/etc/afs/config/xray.json` 始终分别保留。切换会先检查目标二进制，必要时从对应 Release 下载、校验并原子安装，然后同时重建和校验两套 JSON，最后重启同一个 `afs-core.service`。失败会恢复切换前的环境、运行配置、服务文件和订阅文件。
 
 添加节点时可留空使用直连，也可输入 SOCKS5 出站：
 
@@ -238,7 +242,7 @@ sudo ./argofusion.sh -i
 203.0.113.10:1080:proxyuser:proxypass
 ```
 
-路由按节点 inbound tag 匹配，因此同一种协议的不同 WS 路径可以使用不同出口。SOCKS5 地址、端口、用户名和密码只写入权限为 `600` 的项目配置；节点分享链接不包含出站凭据。配置变更会重建所有已安装内核的配置并逐一检查、执行 `nginx -t`、重启服务和状态验证，失败时恢复修改前文件。
+路由按节点 inbound tag 匹配，因此同一种协议的不同传输路径可以使用不同出口。SOCKS5 地址、端口、用户名和密码只写入权限为 `600` 的项目配置；节点分享链接不包含出站凭据。配置变更会重建所有已安装内核的配置并逐一检查、执行 `nginx -t`、重启服务和状态验证，失败时恢复修改前文件。
 
 主面板、可返回菜单与确认/配置表单分别在标题右端显示“`0 · 退出`”“`0 · 返回`”“`0 · 取消`”，只读页不显示提示；标题过长时提示自动换行。基础项、节点操作和 WARP 子菜单均保留该行为，返回时不会写入半成品配置。
 
@@ -262,11 +266,11 @@ https://chatgpt.com,api.openai.com,example.com
 
 WARP 只覆盖匹配的网址，不会替换其他节点的 SOCKS5 配置。`af -x` 会检查 `warp-svc`、本地代理端口，并通过 WARP 访问第一个目标域名。WARP 不提供匿名保证，也不保证指定国家或地区的落地 IP。
 
-终端输出使用高亮配色：亮青字标和键名、亮紫页面标题、输入提示、当前核心、优选入口 IP 与公网 IP，亮蓝分区、分隔线及节点协议，亮黄色菜单序号、停用状态及标题右端的导航 `0`，亮白承载主要内容，绿/黄/红分别表示成功、警告和错误。Token 已配置为绿色、未配置为黄色。`af -n` 的“原始节点”标题使用 `编号 标签 · Vless/Vmess/Trojan+WS+TLS`；主面板状态键为“WARP 分流”，节点概览固定显示三类协议数量而不显示总数。节点表按 13/6/14/5/18 排版且总宽度不超过 64 列，过长字段以 `~` 截断；协议为亮蓝，直连公网 IPv4 与 SOCKS5 主机端口统一为亮紫。仅参数配置中的“查看节点”在列表前留一行，增改删页面不留空行。核心切换成功后停留在核心配置页，输入 `0` 才返回；服务重启先刷新 systemd unit，并去掉重启范围后的额外横线。Xray 成功配置检查不输出配置读取和弃用提醒，失败只显示过滤后的真实错误。WARP 添加、删除域名留空时直接返回，不执行配置事务。
+终端输出使用高亮配色：亮青字标和键名、亮紫页面标题、输入提示、当前核心、优选入口 IP 与公网 IP，亮蓝分区、分隔线及节点协议，亮黄色菜单序号、停用状态及标题右端的导航 `0`，亮白承载主要内容，绿/黄/红分别表示成功、警告和错误。Token 已配置为绿色、未配置为黄色。`af -n` 的“原始节点”标题按节点显示 `Vless/Vmess/Trojan+WS+TLS`、`Vless+XHTTP+TLS` 或 `Shadowsocks+WS+TLS`；主面板状态键为“WARP 分流”，节点概览固定显示 `Vless / Vmess / Trojan / XHTTP / SS` 数量而不显示总数。节点表按 13/6/14/5/18 排版且总宽度不超过 64 列，过长字段以 `~` 截断；XHTTP 与 Shadowsocks 在六列协议栏显示为 `XHTTP`、`SS`，直连公网 IPv4 与 SOCKS5 主机端口统一为亮紫。仅参数配置中的“查看节点”在列表前留一行，增改删页面不留空行。核心切换成功后停留在核心配置页，输入 `0` 才返回；服务重启先刷新 systemd unit，并去掉重启范围后的额外横线。Xray 成功配置检查不输出配置读取和弃用提醒，失败只显示过滤后的真实错误。WARP 添加、删除域名留空时直接返回，不执行配置事务。
 
 ## 诊断、备份与恢复
 
-- `af -x`：执行运行诊断，检查配置与 Token 同步、三个服务、全部动态监听端口、每条公网 WS 路径、核心版本，并输出最近 30 条项目日志。
+- `af -x`：执行运行诊断，检查配置与 Token 同步、三个服务、全部动态监听端口、每条公网 WS 握手或 XHTTP OPTIONS 路径、核心版本，并输出最近 30 条项目日志。
 - `af -k`：打开节点备份与恢复菜单。备份仅归档 `/etc/afs/config/nodes.conf`；默认保存到 `/etc/afs/backup/argofusion-nodes-backup-时间.tar.gz`，也可在子菜单指定其他绝对路径。恢复默认从 `/etc/afs/backup/` 选择最新节点归档，也可在子菜单指定目录或完整文件；解压前会验证 gzip、成员路径与文件类型，拒绝目录穿越、符号链接和特殊文件，失败自动回滚。传入旧版完整 `/etc/argofusion` 归档时，也只读取其中的 `nodes.conf`，不会恢复旧脚本、旧核心或整个项目目录。
 
 `af -v` 会分别显示 Argo/cloudflared 与当前选择的 Sing-box 或 Xray 的本地、目标版本，并分别询问是否更新。只下载、备份、替换和重启用户确认更新的核心；下载文件会校验 SHA256/可执行性，并在替换前检查当前配置。验证失败时只回滚本次选择的核心。
@@ -277,7 +281,7 @@ WARP 只覆盖匹配的网址，不会替换其他节点的 SOCKS5 配置。`af 
 
 ## 节点、订阅和检查
 
-`af -n` 先输出订阅面板链接，再按自适应、原始节点订阅、Base64、Clash/Mihomo、Sing-box 的顺序输出五类入口、自动适配订阅 QR 和全部原始节点 URI。链接标签统一按固定显示宽度对齐；节点标题显示编号、标签及 `· Vless/Vmess/Trojan+WS+TLS` 类型，不重复显示 WS 路径。浏览器访问 `https://你的域名/你的UUID/` 可进入白底蓝字订阅中心，扫描同一自动适配订阅 QR，或打开不同客户端配置：
+`af -n` 先输出订阅面板链接，再按自适应、原始节点订阅、Base64、Clash/Mihomo、Sing-box 的顺序输出五类入口、自动适配订阅 QR 和全部原始节点 URI。链接标签统一按固定显示宽度对齐；节点标题显示编号、标签及完整协议/传输/TLS 类型，不重复显示传输路径。浏览器访问 `https://你的域名/你的UUID/` 可进入白底蓝字订阅中心，扫描同一自动适配订阅 QR，或打开不同客户端配置：
 
 ```text
 https://你的域名/你的UUID/
@@ -288,17 +292,17 @@ https://你的域名/你的UUID/clash
 https://你的域名/你的UUID/sing-box
 ```
 
-`/你的UUID` 会跳转到文件索引；索引 HTML 由 Nginx 直接返回，避免目录 URL 使用文件 `alias` 导致 500。`/auto` 根据 User-Agent 为 Clash/Mihomo 与 sing-box 返回对应格式，其他客户端（包括 Shadowrocket）返回 Base64 通用订阅。`/raw`（原始节点订阅）以及 `/etc/afs/data/nodes.txt` 保留逐行明文 `vless://`、`vmess://`、`trojan://` 节点协议；不再生成或公开 Clash Provider。旧的 `/argofusion-sub` 与 `/argofusion-sub-base64` 入口继续可用。
+`/你的UUID` 会跳转到文件索引；索引 HTML 由 Nginx 直接返回，避免目录 URL 使用文件 `alias` 导致 500。`/auto` 根据 User-Agent 为 Clash/Mihomo 与 sing-box 返回对应格式，其他客户端（包括 Shadowrocket）返回 Base64 通用订阅。`/raw`（原始节点订阅）以及 `/etc/afs/data/nodes.txt` 保留逐行明文 `vless://`、`vmess://`、`trojan://`、XHTTP `vless://` 与 Shadowsocks `ss://` 节点协议；不再生成或公开 Clash Provider。旧的 `/argofusion-sub` 与 `/argofusion-sub-base64` 入口继续可用。
 
 网页自动适配订阅 QR 由 `generate_nodes()` 生成，并通过订阅面板的 `/你的UUID/auto-qr.svg` 资源展示；终端仅输出这一张自动适配 QR，不为明文节点或其他独立配置重复生成二维码。
 
-Clash/Mihomo 的三种 WS 节点均显式 `udp: true`，并统一输出 Chrome 指纹与 `http/1.1` ALPN；VLESS、VMess 同时带 `packet-encoding: xudp`。VMess 统一使用 `aes-128-gcm`（Base64 的 `scy`、Clash/Mihomo 的 `cipher`、sing-box 的 `security`）；明文 VLESS 链接带 `packetEncoding=xudp`，兼容该扩展字段的 Base64 VMess 分享链接也带 `packetEncoding=xudp`，sing-box 的 VLESS、VMess 出站均带 `"packet_encoding":"xudp"`。sing-box TLS 不设置 `min_version` 或 `max_version`，由核心默认协商版本范围；其 WS `headers.Host` 为动态 Argo 域名的单个字符串。Base64 VMess 的 `host`、`alpn` 也是字符串；但 sing-box 与 Clash/Mihomo 的 `alpn` 按各自标准 JSON/YAML schema 必须是字符串数组，不能改为标量。Trojan 没有 XUDP 字段，仍通过协议自身的 UDP 支持和 TLS + WS 传输工作。服务端本机链路由 Cloudflare 边缘终止 TLS，故 Xray / Sing-box 入站继续为回环地址上的明文 WS。
+Clash/Mihomo 的 WS 节点均显式 `udp: true`，VLESS、VMess、Trojan 使用 Chrome 指纹与 `http/1.1` ALPN；VLESS、VMess 同时带 `packet-encoding: xudp`。VMess 统一使用 `aes-128-gcm`（Base64 的 `scy`、Clash/Mihomo 的 `cipher`、sing-box 的 `security`）；明文 VLESS 链接带 `packetEncoding=xudp`，兼容该扩展字段的 Base64 VMess 分享链接也带 `packetEncoding=xudp`，sing-box 的 VLESS、VMess 出站均带 `"packet_encoding":"xudp"`。XHTTP 参考 ArgoX 固定使用 `mode=auto`、Host 为 Argo 域名、ALPN 为 `h2,http/1.1`；其 Nginx 路由保留完整子路径并关闭响应/请求缓冲。Shadowsocks 固定使用 `chacha20-ietf-poly1305`，密码复用全局 UUID，客户端通过 `v2ray-plugin` 的 WebSocket+TLS 参数连接；Sing-box 订阅显式启用 UoT v2。sing-box TLS 不设置 `min_version` 或 `max_version`，由核心默认协商版本范围；WS `headers.Host` 为动态 Argo 域名的字符串。服务端本机链路由 Cloudflare 边缘终止 TLS，故 Xray / Sing-box 入站继续为回环地址上的明文 WS/XHTTP。
 
-默认标签使用接近原版 SBA 的 `Argo-Vl`、`Argo-Vm`、`Argo-Tr` 后缀形式。`af -c` 修改节点时可直接修改标签和协议；标签同时作为当前内核 inbound tag 和各客户端显示名称。
+新安装默认标签为 `Argo-Vl`、`Argo-Vm`、`Argo-Tr`、`Argo-Xh`、`Argo-Sh`。升级已有安装时不会自动向用户维护的 `nodes.conf` 插入新节点；可通过 `af -c` 添加 `vless-xhttp` 或 `shadowsocks`。标签同时作为当前内核 inbound tag 和各客户端显示名称。
 
 如 Cloudflare 返回 Challenge/WAF，需为全部动态代理路径和订阅路径建立适当的 Skip 规则。不要把 Public Hostname 手工解析到 VPS IP；应让流量经过 Argo Tunnel。
 
-固定 Token 模式下 cloudflared 日志不保证包含 Public Hostname，因此脚本无法从日志读取 hostname 时会保留用户输入域名，不再显示失败提醒。公网 WS 探测经过优选入口，单次超时只显示非阻断提示；明确的 HTTP 错误、Cloudflare Challenge 或本地服务/端口异常仍会使健康检查失败。最终连通性应以客户端实测为准。
+固定 Token 模式下 cloudflared 日志不保证包含 Public Hostname，因此脚本无法从日志读取 hostname 时会保留用户输入域名，不再显示失败提醒。公网 WS 握手与 XHTTP OPTIONS 探测经过优选入口，单次超时只显示非阻断提示；明确的 HTTP 错误、Cloudflare Challenge 或本地服务/端口异常仍会使健康检查失败。最终连通性应以客户端实测为准。
 
 ## 卸载边界
 
@@ -315,4 +319,4 @@ Nginx、Cloudflare WARP 和 `curl/ca-certificates/openssl/tar/unzip/qrencode/gnu
 
 只有确认 `/etc/afs/managed` 项目所有权标记后，脚本才递归删除整个 `/etc/afs`，因此项目备份、旧版迁移文件或历史订阅不会残留。请勿把个人文件放入该项目私有目录。脚本不会删除 `/usr/local/bin/sing-box`、`/usr/local/bin/xray`、`/usr/local/bin/cloudflared` 或非本项目 systemd 服务。
 
-本项目不包含 Reality、临时隧道、Argo Json、Cloudflare API 建隧道、英文界面或其他协议脚本；Xray 仅适配现有 VLESS、VMess、Trojan 的 WS + TLS 节点。
+本项目不包含 Reality、临时隧道、Argo Json、Cloudflare API 建隧道、英文界面或其他协议脚本；双核心仅适配 VLESS/VMess/Trojan WS、VLESS XHTTP 和 Shadowsocks WS 这五类固定隧道节点。

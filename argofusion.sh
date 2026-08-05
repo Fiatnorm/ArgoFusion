@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-VERSION="2.14.21"
+VERSION="2.15.0"
 PROJECT_NAME="ArgoFusion"
 PROJECT_CODE="AFS"
 COMMAND_NAME="af"
 PROJECT_REPO="Fiatnorm/ArgoFusion"
 PROJECT_BRANCH="main"
+SING_BOX_REPO="Fiatnorm/argofusion-sing-box"
 WORK_DIR="/etc/afs"
 WORK_DIR_NAME="${WORK_DIR##*/}"
 PREVIOUS_WORK_DIR="/etc/argofusion"
@@ -43,10 +44,11 @@ LEGACY_MIGRATED=0
 
 DEFAULT_SERVER="bestcf.cdn.fiatnorm.us.kg"
 DEFAULT_SERVER_PORT="443"
-# 仅使用项目验证过的官方稳定版，避免安装或更新时混入预发布版本。
-DEFAULT_SING_BOX_VERSION="1.13.15"
+# 仅使用项目验证过的 ArgoFusion 下游稳定版，避免混入预发布或普通构建版本。
+DEFAULT_SING_BOX_VERSION="1.13.14-argofusion.2"
 DEFAULT_XRAY_VERSION="26.3.27"
 DEFAULT_CLOUDFLARED_VERSION="2026.7.3"
+SHADOWSOCKS_METHOD="chacha20-ietf-poly1305"
 
 DEFAULT_ORIGIN_PORT=3010
 ORIGIN_PORT="$DEFAULT_ORIGIN_PORT"
@@ -159,11 +161,11 @@ public_ipv4() {
     hostname -I 2>/dev/null | awk '{print $1}' || true
 }
 node_overview() {
-  [[ -s "$NODES_CONFIG" ]] || { printf 'Vless 0 · Vmess 0 · Trojan 0'; return; }
+  [[ -s "$NODES_CONFIG" ]] || { printf 'Vless 0 · Vmess 0 · Trojan 0 · XHTTP 0 · SS 0'; return; }
   awk -F'|' '
     {protocols[$2]++}
     END {
-      printf "Vless %d · Vmess %d · Trojan %d", protocols["vless"], protocols["vmess"], protocols["trojan"]
+      printf "Vless %d · Vmess %d · Trojan %d · XHTTP %d · SS %d", protocols["vless"], protocols["vmess"], protocols["trojan"], protocols["vless-xhttp"], protocols["shadowsocks"]
     }
   ' "$NODES_CONFIG"
 }
@@ -175,7 +177,7 @@ control_panel() {
   printf '%s\n' ' / ___ |/ /  / /_/ / /_/ /___/ / / / / / /_/ / /_/ / /_/ />  <'
   printf '%s\n' '/_/  |_/_/   \__, /\____//____/_/_/ /_/\__, /_.___/\____/_/|_|'
   printf '%s\n' '            /____/                    /____/'
-  printf '\n%s%s%s  %s%s v%s%s %s· Argo Tunnel · Sing-box / Xray · WSS Proxy%s\n' \
+  printf '\n%s%s%s  %s%s v%s%s %s· Argo Tunnel · Sing-box / Xray · WS / XHTTP%s\n' \
     "$C_BOLD" "$C_BRIGHT_MAGENTA" "$PROJECT_NAME" "$C_BRIGHT_YELLOW" "$PROJECT_CODE" "$VERSION" \
     "$C_RESET" "$C_DIM" "$C_RESET"
   printf '%s' "$C_BRIGHT_CYAN"
@@ -320,6 +322,19 @@ protocol_label() {
     vless) printf 'Vless' ;;
     vmess) printf 'Vmess' ;;
     trojan) printf 'Trojan' ;;
+    vless-xhttp) printf 'XHTTP' ;;
+    shadowsocks) printf 'SS' ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
+
+node_type_label() {
+  case "$1" in
+    vless) printf 'Vless+WS+TLS' ;;
+    vmess) printf 'Vmess+WS+TLS' ;;
+    trojan) printf 'Trojan+WS+TLS' ;;
+    vless-xhttp) printf 'Vless+XHTTP+TLS' ;;
+    shadowsocks) printf 'Shadowsocks+WS+TLS' ;;
     *) printf '%s' "$1" ;;
   esac
 }
@@ -562,6 +577,8 @@ ensure_nodes_config() {
 Argo-Vl|vless|/argo-vl|$((ORIGIN_PORT + 1))|
 Argo-Vm|vmess|/argo-vm|$((ORIGIN_PORT + 2))|
 Argo-Tr|trojan|/argo-tr|$((ORIGIN_PORT + 3))|
+Argo-Xh|vless-xhttp|/argo-xh|$((ORIGIN_PORT + 4))|
+Argo-Sh|shadowsocks|/argo-sh|$((ORIGIN_PORT + 5))|
 EOF
   chmod 600 "$NODES_CONFIG"
 }
@@ -581,8 +598,8 @@ validate_nodes_config() {
   while IFS='|' read -r tag protocol path port socks extra; do
     [[ -n "$tag" && -z "${extra:-}" ]] || die "节点配置字段数量错误。"
     [[ "$tag" =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]] || die "节点标签格式错误：${tag}"
-    [[ "$protocol" =~ ^(vless|vmess|trojan)$ ]] || die "不支持的节点协议：${protocol}"
-    valid_path "$path" || die "WS 路径格式错误：${path}"
+    [[ "$protocol" =~ ^(vless|vmess|trojan|vless-xhttp|shadowsocks)$ ]] || die "不支持的节点协议：${protocol}"
+    valid_path "$path" || die "传输路径格式错误：${path}"
     valid_port "$port" || die "节点端口错误：${port}"
     [[ "$seen_tags" != *"|${tag}|"* && "$seen_paths" != *"|${path}|"* &&
       "$seen_ports" != *"|${port}|"* ]] || die "节点标签、路径或端口重复。"
@@ -747,17 +764,22 @@ get_cloudflared_version() {
 }
 
 stage_sing_box() {
-  local version="${1:-}" target="$2" archive temp_dir
+  local version="${1:-}" target="$2" archive temp_dir version_output asset_name
   [[ -n "$version" ]] || version="$(get_sing_box_version)"
   [[ -n "$version" ]] || die "无法确定 sing-box 版本。"
+  asset_name="argofusion-sing-box-v${version}-linux-${ARCH}.tar.gz"
   archive="$(mktemp --suffix=.tar.gz)"
-  download "https://github.com/SagerNet/sing-box/releases/download/v${version}/sing-box-${version}-linux-${ARCH}.tar.gz" "$archive"
-  verify_github_asset "$archive" "SagerNet/sing-box" "tags/v${version}" \
-    "sing-box-${version}-linux-${ARCH}.tar.gz"
+  download "https://github.com/${SING_BOX_REPO}/releases/download/v${version}/${asset_name}" "$archive"
+  verify_github_asset "$archive" "$SING_BOX_REPO" "tags/v${version}" "$asset_name"
   temp_dir="$(mktemp -d)"
   tar -xzf "$archive" -C "$temp_dir"
-  install -m 755 "$temp_dir/sing-box-${version}-linux-${ARCH}/sing-box" "$target"
-  "$target" version >/dev/null
+  [[ -x "$temp_dir/sing-box" ]] || die "ArgoFusion sing-box 发布包结构无效。"
+  install -m 755 "$temp_dir/sing-box" "$target"
+  version_output="$("$target" version 2>&1)"
+  grep -Fq "sing-box version v${version}" <<<"$version_output" ||
+    die "ArgoFusion sing-box 版本校验失败。"
+  grep -Fq "with_v2ray_api" <<<"$version_output" ||
+    die "ArgoFusion sing-box 构建标签不完整。"
   rm -rf "$archive" "$temp_dir"
 }
 
@@ -792,7 +814,7 @@ stage_cloudflared() {
 }
 
 local_sing_box_version() {
-  "$BIN_DIR/sing-box" version 2>/dev/null | awk '/version/{print $NF; exit}'
+  "$BIN_DIR/sing-box" version 2>/dev/null | awk '/version/{sub(/^v/, "", $NF); print $NF; exit}'
 }
 
 local_xray_version() {
@@ -884,21 +906,35 @@ local_cloudflared_version() {
 }
 
 write_sing_box_config() {
-  local tag protocol path port socks first=1 values host proxy_port username password
+  local tag protocol path port socks first=1 values host proxy_port username password core_protocol
   ensure_nodes_config
   validate_environment
   validate_nodes_config
   printf '{"log":{"level":"info","timestamp":true},"inbounds":[\n' >"$SING_BOX_CONFIG"
   while IFS='|' read -r tag protocol path port socks; do
     ((first)) || printf ',\n' >>"$SING_BOX_CONFIG"; first=0
-    printf '{"type":"%s","tag":"%s","listen":"127.0.0.1","listen_port":%s,' "$protocol" "$tag" "$port" >>"$SING_BOX_CONFIG"
+    core_protocol="$protocol"
+    [[ "$protocol" == "vless-xhttp" ]] && core_protocol="vless"
+    printf '{"type":"%s","tag":"%s","listen":"127.0.0.1","listen_port":%s,' "$core_protocol" "$tag" "$port" >>"$SING_BOX_CONFIG"
     case "$protocol" in
       trojan) printf '"users":[{"password":"%s"}],' "$UUID" >>"$SING_BOX_CONFIG" ;;
       vmess) printf '"users":[{"uuid":"%s","alterId":0}],' "$UUID" >>"$SING_BOX_CONFIG" ;;
       vless) printf '"users":[{"uuid":"%s","flow":""}],' "$UUID" >>"$SING_BOX_CONFIG" ;;
+      vless-xhttp) printf '"users":[{"uuid":"%s"}],' "$UUID" >>"$SING_BOX_CONFIG" ;;
+      shadowsocks) printf '"network":"tcp","method":"%s","password":"%s",' "$SHADOWSOCKS_METHOD" "$UUID" >>"$SING_BOX_CONFIG" ;;
     esac
-    printf '"transport":{"type":"ws","path":"%s","max_early_data":2560,"early_data_header_name":"Sec-WebSocket-Protocol"},' "$path" >>"$SING_BOX_CONFIG"
-    printf '"multiplex":{"enabled":true,"padding":true,"brutal":{"enabled":false,"up_mbps":1000,"down_mbps":1000}}}' >>"$SING_BOX_CONFIG"
+    case "$protocol" in
+      vless-xhttp)
+        printf '"transport":{"type":"xhttp","path":"%s","mode":"auto"}}' "$path" >>"$SING_BOX_CONFIG"
+        ;;
+      shadowsocks)
+        printf '"transport":{"type":"ws","path":"%s"}}' "$path" >>"$SING_BOX_CONFIG"
+        ;;
+      *)
+        printf '"transport":{"type":"ws","path":"%s","max_early_data":2560,"early_data_header_name":"Sec-WebSocket-Protocol"},' "$path" >>"$SING_BOX_CONFIG"
+        printf '"multiplex":{"enabled":true,"padding":true,"brutal":{"enabled":false,"up_mbps":1000,"down_mbps":1000}}}' >>"$SING_BOX_CONFIG"
+        ;;
+    esac
   done <"$NODES_CONFIG"
   printf '\n],"outbounds":[{"type":"direct","tag":"direct"}' >>"$SING_BOX_CONFIG"
   if [[ "$WARP_ENABLED" == "1" ]]; then
@@ -931,21 +967,27 @@ write_sing_box_config() {
 }
 
 write_xray_config() {
-  local tag protocol path port socks first=1 values host proxy_port username password
+  local tag protocol path port socks first=1 values host proxy_port username password core_protocol
   ensure_nodes_config
   validate_environment
   validate_nodes_config
   printf '{"log":{"loglevel":"warning"},"inbounds":[\n' >"$XRAY_CONFIG"
   while IFS='|' read -r tag protocol path port socks; do
     ((first)) || printf ',\n' >>"$XRAY_CONFIG"; first=0
-    printf '{"protocol":"%s","tag":"%s","listen":"127.0.0.1","port":%s,' "$protocol" "$tag" "$port" >>"$XRAY_CONFIG"
+    core_protocol="$protocol"
+    [[ "$protocol" == "vless-xhttp" ]] && core_protocol="vless"
+    printf '{"protocol":"%s","tag":"%s","listen":"127.0.0.1","port":%s,' "$core_protocol" "$tag" "$port" >>"$XRAY_CONFIG"
     case "$protocol" in
       trojan) printf '"settings":{"clients":[{"password":"%s"}]},' "$UUID" >>"$XRAY_CONFIG" ;;
       vmess) printf '"settings":{"clients":[{"id":"%s","alterId":0}]},' "$UUID" >>"$XRAY_CONFIG" ;;
       vless) printf '"settings":{"clients":[{"id":"%s","level":0}],"decryption":"none"},' "$UUID" >>"$XRAY_CONFIG" ;;
+      vless-xhttp) printf '"settings":{"clients":[{"id":"%s"}],"decryption":"none"},' "$UUID" >>"$XRAY_CONFIG" ;;
+      shadowsocks) printf '"settings":{"clients":[{"method":"%s","password":"%s"}],"network":"tcp,udp"},' "$SHADOWSOCKS_METHOD" "$UUID" >>"$XRAY_CONFIG" ;;
     esac
     case "$protocol" in
       vmess) printf '"streamSettings":{"network":"ws","wsSettings":{"path":"%s"}},' "$path" >>"$XRAY_CONFIG" ;;
+      vless-xhttp) printf '"streamSettings":{"network":"xhttp","security":"none","xhttpSettings":{"path":"%s","mode":"auto"}},' "$path" >>"$XRAY_CONFIG" ;;
+      shadowsocks) printf '"streamSettings":{"network":"ws","wsSettings":{"path":"%s"}},' "$path" >>"$XRAY_CONFIG" ;;
       *) printf '"streamSettings":{"network":"ws","security":"none","wsSettings":{"path":"%s"}},' "$path" >>"$XRAY_CONFIG" ;;
     esac
     printf '"sniffing":{"enabled":true,"destOverride":["http","tls","quic"],"metadataOnly":false}}' >>"$XRAY_CONFIG"
@@ -1024,7 +1066,29 @@ server {
 
 EOF
   while IFS='|' read -r tag protocol path port socks; do
-    cat >>"$NGINX_CONFIG" <<EOF
+    if [[ "$protocol" == "vless-xhttp" ]]; then
+      cat >>"$NGINX_CONFIG" <<EOF
+    location ^~ ${path}/ {
+        proxy_pass http://127.0.0.1:${port};
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_redirect off;
+        proxy_buffering off;
+        proxy_request_buffering off;
+        proxy_max_temp_file_size 0;
+        chunked_transfer_encoding on;
+        tcp_nodelay on;
+        proxy_read_timeout 1h;
+        proxy_send_timeout 1h;
+        client_max_body_size 0;
+        client_body_timeout 1h;
+    }
+EOF
+    else
+      cat >>"$NGINX_CONFIG" <<EOF
     location = ${path} {
         if (\$http_upgrade != "websocket") { return 404; }
         proxy_pass http://127.0.0.1:${port};
@@ -1040,6 +1104,7 @@ EOF
         proxy_send_timeout 1h;
     }
 EOF
+    fi
   done <"$NODES_CONFIG"
   cat >>"$NGINX_CONFIG" <<EOF
     location = /${UUID} {
@@ -1047,7 +1112,7 @@ EOF
     }
     location = /${UUID}/ {
         default_type text/html;
-        return 200 '<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ArgoFusion 订阅中心</title><style>body{margin:0;background:#fff;color:#17345f;font:16px/1.65 system-ui,sans-serif}main{max-width:960px;margin:auto;padding:52px 24px 64px}.ey{margin:0;color:#0969da;font-size:12px;font-weight:800;letter-spacing:.14em}h1{margin:4px 0 5px;color:#0757c7;font-size:36px;letter-spacing:-.03em}p,small{color:#61708a}.hero,.card{border:1px solid #cfe1fb;border-radius:16px;background:#fff;box-shadow:0 10px 28px #1d5fa00d}.hero{display:grid;grid-template-columns:166px 1fr;gap:28px;align-items:center;margin:28px 0 40px;padding:26px}.hero img{display:block;width:146px;height:146px;padding:9px;border:1px solid #cfe1fb;border-radius:11px}.hero b{color:#0757c7;font-size:23px}.hero p{margin:6px 0 0}.open{display:inline-block;margin-top:16px;padding:9px 15px;border-radius:8px;background:#0969da;color:#fff;text-decoration:none;font-weight:800}.head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:14px}.head h2{margin:0;color:#0757c7;font-size:21px}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.card{min-height:70px;padding:20px;color:#0757c7;text-decoration:none;font-weight:800;transition:border-color .16s,transform .16s,box-shadow .16s}.card:hover{border-color:#0969da;box-shadow:0 12px 28px #1d5fa018;transform:translateY(-2px)}.card small{display:block;margin-top:7px;font-weight:400}@media(max-width:560px){main{padding:34px 18px 48px}.hero{grid-template-columns:1fr;gap:18px;padding:22px}.hero img{margin:auto}.head{align-items:flex-start;flex-direction:column;gap:2px}.grid{grid-template-columns:1fr}}</style><main><p class=ey>ARGO FUSION</p><h1>订阅中心</h1><p>选择适合客户端的订阅方式。</p><section class=hero><a href=auto><img src=auto-qr.svg alt="自适应订阅 QR"></a><div><b>自适应订阅</b><p>推荐使用。扫码或打开链接，自动匹配客户端格式。</p><a class=open href=auto>打开自适应订阅</a></div></section><div class=head><h2>指定格式</h2><small>共五类订阅</small></div><section class=grid><a class=card href=raw>原始节点订阅<small>逐行 vless、vmess、trojan</small></a><a class=card href=base64>Base64 订阅<small>V2rayN、NekoBox、Shadowrocket</small></a><a class=card href=clash>Clash/Mihomo 订阅<small>完整 YAML 配置</small></a><a class=card href=sing-box>Sing-box 订阅<small>JSON 出站配置</small></a></section></main>';
+        return 200 '<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ArgoFusion 订阅中心</title><style>body{margin:0;background:#fff;color:#17345f;font:16px/1.65 system-ui,sans-serif}main{max-width:960px;margin:auto;padding:52px 24px 64px}.ey{margin:0;color:#0969da;font-size:12px;font-weight:800;letter-spacing:.14em}h1{margin:4px 0 5px;color:#0757c7;font-size:36px;letter-spacing:-.03em}p,small{color:#61708a}.hero,.card{border:1px solid #cfe1fb;border-radius:16px;background:#fff;box-shadow:0 10px 28px #1d5fa00d}.hero{display:grid;grid-template-columns:166px 1fr;gap:28px;align-items:center;margin:28px 0 40px;padding:26px}.hero img{display:block;width:146px;height:146px;padding:9px;border:1px solid #cfe1fb;border-radius:11px}.hero b{color:#0757c7;font-size:23px}.hero p{margin:6px 0 0}.open{display:inline-block;margin-top:16px;padding:9px 15px;border-radius:8px;background:#0969da;color:#fff;text-decoration:none;font-weight:800}.head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:14px}.head h2{margin:0;color:#0757c7;font-size:21px}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.card{min-height:70px;padding:20px;color:#0757c7;text-decoration:none;font-weight:800;transition:border-color .16s,transform .16s,box-shadow .16s}.card:hover{border-color:#0969da;box-shadow:0 12px 28px #1d5fa018;transform:translateY(-2px)}.card small{display:block;margin-top:7px;font-weight:400}@media(max-width:560px){main{padding:34px 18px 48px}.hero{grid-template-columns:1fr;gap:18px;padding:22px}.hero img{margin:auto}.head{align-items:flex-start;flex-direction:column;gap:2px}.grid{grid-template-columns:1fr}}</style><main><p class=ey>ARGO FUSION</p><h1>订阅中心</h1><p>选择适合客户端的订阅方式。</p><section class=hero><a href=auto><img src=auto-qr.svg alt="自适应订阅 QR"></a><div><b>自适应订阅</b><p>推荐使用。扫码或打开链接，自动匹配客户端格式。</p><a class=open href=auto>打开自适应订阅</a></div></section><div class=head><h2>指定格式</h2><small>共五类订阅</small></div><section class=grid><a class=card href=raw>原始节点订阅<small>VLESS、VMess、Trojan、XHTTP、SS</small></a><a class=card href=base64>Base64 订阅<small>V2rayN、NekoBox、Shadowrocket</small></a><a class=card href=clash>Clash/Mihomo 订阅<small>完整 YAML 配置</small></a><a class=card href=sing-box>Sing-box 订阅<small>JSON 出站配置</small></a></section></main>';
     }
     location = /${UUID}/auto-qr.svg {
         default_type image/svg+xml;
@@ -1141,6 +1206,7 @@ EOF
 
 generate_nodes() {
   local old_umask vmess_json vmess_link tag protocol path port socks encoded_path vmess_path first uri_server auto_url
+  local ss_credential
   local clash_early_data sing_box_early_data
   ensure_nodes_config
   validate_environment
@@ -1155,17 +1221,23 @@ generate_nodes() {
   while IFS='|' read -r tag protocol path port socks; do
     encoded_path="%2F${path#/}"
     vmess_path="$path"
-    encoded_path+="%3Fed%3D2560"
-    vmess_path+="?ed=2560"
     case "$protocol" in
       vless) printf 'vless://%s@%s:%s?encryption=none&security=tls&sni=%s&fp=chrome&alpn=http%%2F1.1&insecure=0&allowInsecure=0&type=ws&host=%s&path=%s&packetEncoding=xudp#%s\n' \
-        "$UUID" "$uri_server" "$SERVER_PORT" "$ARGO_DOMAIN" "$ARGO_DOMAIN" "$encoded_path" "$tag" >>"$NODES_FILE" ;;
+        "$UUID" "$uri_server" "$SERVER_PORT" "$ARGO_DOMAIN" "$ARGO_DOMAIN" "${encoded_path}%3Fed%3D2560" "$tag" >>"$NODES_FILE" ;;
       trojan) printf 'trojan://%s@%s:%s?security=tls&sni=%s&fp=chrome&alpn=http%%2F1.1&insecure=0&allowInsecure=0&type=ws&host=%s&path=%s#%s\n' \
-        "$UUID" "$uri_server" "$SERVER_PORT" "$ARGO_DOMAIN" "$ARGO_DOMAIN" "$encoded_path" "$tag" >>"$NODES_FILE" ;;
+        "$UUID" "$uri_server" "$SERVER_PORT" "$ARGO_DOMAIN" "$ARGO_DOMAIN" "${encoded_path}%3Fed%3D2560" "$tag" >>"$NODES_FILE" ;;
       vmess)
+        vmess_path+="?ed=2560"
         vmess_json="{\"v\":\"2\",\"ps\":\"${tag}\",\"add\":\"${SERVER}\",\"port\":\"${SERVER_PORT}\",\"id\":\"${UUID}\",\"aid\":\"0\",\"scy\":\"aes-128-gcm\",\"net\":\"ws\",\"type\":\"none\",\"host\":\"${ARGO_DOMAIN}\",\"path\":\"${vmess_path}\",\"tls\":\"tls\",\"sni\":\"${ARGO_DOMAIN}\",\"fp\":\"chrome\",\"alpn\":\"http/1.1\",\"packetEncoding\":\"xudp\"}"
         vmess_link="$(printf '%s' "$vmess_json" | base64 -w 0)"
         printf 'vmess://%s\n' "$vmess_link" >>"$NODES_FILE" ;;
+      vless-xhttp) printf 'vless://%s@%s:%s?encryption=none&security=tls&sni=%s&fp=chrome&alpn=h2%%2Chttp%%2F1.1&type=xhttp&host=%s&path=%s&mode=auto#%s\n' \
+        "$UUID" "$uri_server" "$SERVER_PORT" "$ARGO_DOMAIN" "$ARGO_DOMAIN" "$encoded_path" "$tag" >>"$NODES_FILE" ;;
+      shadowsocks)
+        ss_credential="$(printf '%s:%s' "$SHADOWSOCKS_METHOD" "$UUID" | base64 -w 0)"
+        printf 'ss://%s@%s:%s?plugin=v2ray-plugin%%3Bmode%%3Dwebsocket%%3Bhost%%3D%s%%3Bpath%%3D%s%%3Btls%%3Dtrue%%3Bservername%%3D%s%%3Bskip-cert-verify%%3Dfalse%%3Bmux%%3D0&uot=1#%s\n' \
+          "$ss_credential" "$uri_server" "$SERVER_PORT" "$ARGO_DOMAIN" "$encoded_path" "$ARGO_DOMAIN" "$tag" >>"$NODES_FILE"
+        ;;
     esac
   done <"$NODES_CONFIG"
   chmod 600 "$NODES_FILE"
@@ -1183,6 +1255,10 @@ generate_nodes() {
         "$tag" "$SERVER" "$SERVER_PORT" "$UUID" "$ARGO_DOMAIN" "$path" "$ARGO_DOMAIN" "$clash_early_data" ;;
       trojan) printf '  - {name: "%s", type: trojan, server: "%s", port: %s, password: %s, udp: true, tls: true, sni: %s, client-fingerprint: chrome, alpn: [http/1.1], skip-cert-verify: false, network: ws, ws-opts: {path: "%s", headers: {Host: %s}%s}}\n' \
         "$tag" "$SERVER" "$SERVER_PORT" "$UUID" "$ARGO_DOMAIN" "$path" "$ARGO_DOMAIN" "$clash_early_data" ;;
+      vless-xhttp) printf '  - {name: "%s", type: vless, server: "%s", port: %s, uuid: %s, udp: true, tls: true, network: xhttp, alpn: [h2, http/1.1], servername: %s, client-fingerprint: chrome, encryption: "", xhttp-opts: {path: "%s", host: %s, mode: auto}}\n' \
+        "$tag" "$SERVER" "$SERVER_PORT" "$UUID" "$ARGO_DOMAIN" "$path" "$ARGO_DOMAIN" ;;
+      shadowsocks) printf '  - {name: "%s", type: ss, server: "%s", port: %s, cipher: %s, password: %s, udp: true, plugin: v2ray-plugin, plugin-opts: {mode: websocket, host: %s, path: "%s", tls: true, servername: %s, skip-cert-verify: false, mux: false}}\n' \
+        "$tag" "$SERVER" "$SERVER_PORT" "$SHADOWSOCKS_METHOD" "$UUID" "$ARGO_DOMAIN" "$path" "$ARGO_DOMAIN" ;;
     esac
   done <"$NODES_CONFIG" >>"$SUB_CLASH_FILE"
   printf 'proxy-groups:\n  - name: PROXY\n    type: select\n    proxies:\n' >>"$SUB_CLASH_FILE"
@@ -1195,15 +1271,27 @@ generate_nodes() {
   first=1
   while IFS='|' read -r tag protocol path port socks; do
     ((first)) || printf ',' >>"$SUB_SING_BOX_FILE"; first=0
-    printf '{"type":"%s","tag":"%s","server":"%s","server_port":%s,' \
-      "$protocol" "$tag" "$SERVER" "$SERVER_PORT" >>"$SUB_SING_BOX_FILE"
     case "$protocol" in
-      trojan) printf '"password":"%s",' "$UUID" >>"$SUB_SING_BOX_FILE" ;;
-      vmess) printf '"uuid":"%s","security":"aes-128-gcm","alter_id":0,"packet_encoding":"xudp",' "$UUID" >>"$SUB_SING_BOX_FILE" ;;
-      vless) printf '"uuid":"%s","flow":"","packet_encoding":"xudp",' "$UUID" >>"$SUB_SING_BOX_FILE" ;;
+      vless-xhttp)
+        printf '{"type":"vless","tag":"%s","server":"%s","server_port":%s,"uuid":"%s","tls":{"enabled":true,"server_name":"%s","insecure":false,"alpn":["h2","http/1.1"],"utls":{"enabled":true,"fingerprint":"chrome"}},"transport":{"type":"xhttp","path":"%s","mode":"auto","host":"%s"}}' \
+          "$tag" "$SERVER" "$SERVER_PORT" "$UUID" "$ARGO_DOMAIN" "$path" "$ARGO_DOMAIN" >>"$SUB_SING_BOX_FILE"
+        ;;
+      shadowsocks)
+        printf '{"type":"shadowsocks","tag":"%s","server":"%s","server_port":%s,"method":"%s","password":"%s","udp_over_tcp":{"enabled":true,"version":2},"plugin":"v2ray-plugin","plugin_opts":"mode=websocket;host=%s;path=%s;tls=true;servername=%s;skip-cert-verify=false;mux=0"}' \
+          "$tag" "$SERVER" "$SERVER_PORT" "$SHADOWSOCKS_METHOD" "$UUID" "$ARGO_DOMAIN" "$path" "$ARGO_DOMAIN" >>"$SUB_SING_BOX_FILE"
+        ;;
+      *)
+        printf '{"type":"%s","tag":"%s","server":"%s","server_port":%s,' \
+          "$protocol" "$tag" "$SERVER" "$SERVER_PORT" >>"$SUB_SING_BOX_FILE"
+        case "$protocol" in
+          trojan) printf '"password":"%s",' "$UUID" >>"$SUB_SING_BOX_FILE" ;;
+          vmess) printf '"uuid":"%s","security":"aes-128-gcm","alter_id":0,"packet_encoding":"xudp",' "$UUID" >>"$SUB_SING_BOX_FILE" ;;
+          vless) printf '"uuid":"%s","flow":"","packet_encoding":"xudp",' "$UUID" >>"$SUB_SING_BOX_FILE" ;;
+        esac
+        printf '"tls":{"enabled":true,"server_name":"%s","insecure":false,"alpn":["http/1.1"],"utls":{"enabled":true,"fingerprint":"chrome"}},"transport":{"type":"ws","path":"%s","headers":{"Host":"%s"}%s}}' \
+          "$ARGO_DOMAIN" "$path" "$ARGO_DOMAIN" "$sing_box_early_data" >>"$SUB_SING_BOX_FILE"
+        ;;
     esac
-    printf '"tls":{"enabled":true,"server_name":"%s","insecure":false,"alpn":["http/1.1"],"utls":{"enabled":true,"fingerprint":"chrome"}},"transport":{"type":"ws","path":"%s","headers":{"Host":"%s"}%s}}' \
-      "$ARGO_DOMAIN" "$path" "$ARGO_DOMAIN" "$sing_box_early_data" >>"$SUB_SING_BOX_FILE"
   done <"$NODES_CONFIG"
   printf ']}\n' >>"$SUB_SING_BOX_FILE"
   chmod 644 "$SUB_BASE64_FILE"
@@ -1280,7 +1368,7 @@ health_check() {
   local failed=0 public_code public_headers curl_status port path tag protocol socks mode="${1:-full}"
   ensure_nodes_config
   if [[ "$mode" == "ws" ]]; then
-    section "WS 检查"
+    section "传输检查"
   else
     section "运行检查"
     for service in nginx "$SING_SERVICE" "$ARGO_SERVICE"; do
@@ -1305,22 +1393,30 @@ health_check() {
 
   while IFS='|' read -r tag protocol path port socks; do
     curl_status=0
-    public_headers="$(curl -ksS --http1.1 --connect-timeout 5 --max-time 8 -D - -o /dev/null \
-      --connect-to "${ARGO_DOMAIN}:${SERVER_PORT}:${SERVER}:${SERVER_PORT}" \
-      -H "Connection: Upgrade" -H "Upgrade: websocket" \
-      -H "Sec-WebSocket-Version: 13" \
-      -H "Sec-WebSocket-Key: SGVsbG9Xb3JsZDEyMzQ1Ng==" \
-      "https://${ARGO_DOMAIN}:${SERVER_PORT}${path}" 2>/dev/null)" || curl_status=$?
+    if [[ "$protocol" == "vless-xhttp" ]]; then
+      public_headers="$(curl -ksS --http1.1 --connect-timeout 5 --max-time 8 -X OPTIONS -D - -o /dev/null \
+        --connect-to "${ARGO_DOMAIN}:${SERVER_PORT}:${SERVER}:${SERVER_PORT}" \
+        "https://${ARGO_DOMAIN}:${SERVER_PORT}${path}/" 2>/dev/null)" || curl_status=$?
+    else
+      public_headers="$(curl -ksS --http1.1 --connect-timeout 5 --max-time 8 -D - -o /dev/null \
+        --connect-to "${ARGO_DOMAIN}:${SERVER_PORT}:${SERVER}:${SERVER_PORT}" \
+        -H "Connection: Upgrade" -H "Upgrade: websocket" \
+        -H "Sec-WebSocket-Version: 13" \
+        -H "Sec-WebSocket-Key: SGVsbG9Xb3JsZDEyMzQ1Ng==" \
+        "https://${ARGO_DOMAIN}:${SERVER_PORT}${path}" 2>/dev/null)" || curl_status=$?
+    fi
     public_code="$(awk '/^HTTP/{code=$2} END{print code}' <<<"$public_headers")"
     if grep -qi '^cf-mitigated: *challenge' <<<"$public_headers"; then
       red "${path}：Cloudflare 人机挑战（HTTP ${public_code:-403}）"
       failed=1
+    elif [[ "$protocol" == "vless-xhttp" && "$public_code" == "200" ]]; then
+      green "${path}：公网 XHTTP OPTIONS 正常"
     elif [[ "$public_code" == "101" ]]; then
       green "${path}：公网 WS 握手正常"
     elif [[ "$curl_status" -eq 28 ]]; then
-      yellow "${path}：公网 WS 探测超时，未视为安装失败；请用客户端实测。"
+      yellow "${path}：公网传输探测超时，未视为安装失败；请用客户端实测。"
     else
-      red "${path}：公网 WS 握手失败（HTTP ${public_code:-000}）"
+      red "${path}：公网传输探测失败（HTTP ${public_code:-000}）"
       failed=1
     fi
   done <"$NODES_CONFIG"
@@ -1775,7 +1871,7 @@ list_node_profiles() {
   fi
   subsection "节点列表"
   printf '%s%s' "$C_BOLD" "$C_BRIGHT_CYAN"
-  pad_right "标签" 13; printf '  '; pad_right "协议" 6; printf '  '; pad_right "WS 路径" 14
+  pad_right "标签" 13; printf '  '; pad_right "协议" 6; printf '  '; pad_right "传输路径" 14
   printf '  '; pad_right "端口" 5; printf '  %s%s\n' "出站 IP" "$C_RESET"
   printf '%s%s%s\n' "$C_DIM" '-------------  ------  --------------  -----  ------------------' "$C_RESET"
   while IFS='|' read -r tag protocol path port socks; do
@@ -1805,18 +1901,18 @@ add_node_profile() {
     break
   done
   while true; do
-    read_input "节点协议 [vless/vmess/trojan]：" protocol
+    read_input "节点协议 [vless/vmess/trojan/vless-xhttp/shadowsocks]：" protocol
     is_exit_input "$protocol" && { cancel_config_change; return 0; }
     protocol="${protocol,,}"
-    [[ "$protocol" =~ ^(vless|vmess|trojan)$ ]] || { yellow "协议不受支持，请重新输入。"; continue; }
+    [[ "$protocol" =~ ^(vless|vmess|trojan|vless-xhttp|shadowsocks)$ ]] || { yellow "协议不受支持，请重新输入。"; continue; }
     break
   done
   while true; do
-    read_input "WS 路径 [以 / 开头]：" path
+    read_input "传输路径 [以 / 开头]：" path
     is_exit_input "$path" && { cancel_config_change; return 0; }
-    valid_path "$path" || { yellow "WS 路径格式错误，请重新输入。"; continue; }
+    valid_path "$path" || { yellow "传输路径格式错误，请重新输入。"; continue; }
     awk -F'|' -v path="$path" '$3 == path {found=1} END {exit !found}' "$NODES_CONFIG" &&
-      { yellow "WS 路径已存在，请重新输入。"; continue; }
+      { yellow "传输路径已存在，请重新输入。"; continue; }
     break
   done
   while true; do
@@ -1915,16 +2011,16 @@ edit_node_profile() {
     read_input "节点协议 [${protocol}]：" new_protocol
     is_exit_input "$new_protocol" && { cancel_config_change; return 0; }
     new_protocol="${new_protocol:-$protocol}"; new_protocol="${new_protocol,,}"
-    [[ "$new_protocol" =~ ^(vless|vmess|trojan)$ ]] || { yellow "协议不受支持，请重新输入。"; continue; }
+    [[ "$new_protocol" =~ ^(vless|vmess|trojan|vless-xhttp|shadowsocks)$ ]] || { yellow "协议不受支持，请重新输入。"; continue; }
     protocol="$new_protocol"; break
   done
   while true; do
-    read_input "WS 路径 [${path}]：" new_path
+    read_input "传输路径 [${path}]：" new_path
     is_exit_input "$new_path" && { cancel_config_change; return 0; }
     new_path="${new_path:-$path}"
-    valid_path "$new_path" || { yellow "WS 路径格式错误，请重新输入。"; continue; }
+    valid_path "$new_path" || { yellow "传输路径格式错误，请重新输入。"; continue; }
     awk -F'|' -v wanted="$wanted" -v value="$new_path" '$1 != wanted && $3 == value {found=1} END {exit !found}' "$NODES_CONFIG" &&
-      { yellow "WS 路径已被其他节点使用，请重新输入。"; continue; }
+      { yellow "传输路径已被其他节点使用，请重新输入。"; continue; }
     path="$new_path"; break
   done
   while true; do
@@ -2441,9 +2537,9 @@ show_nodes() {
     IFS= read -r node <&3 || break
     ((index+=1))
     ((index > 1)) && printf '\n'
-    printf '%s%s[%02d]%s %s%s%s %s· %s+WS+TLS%s\n%s%s%s\n' \
+    printf '%s%s[%02d]%s %s%s%s %s· %s%s\n%s%s%s\n' \
       "$C_BOLD" "$C_BRIGHT_CYAN" "$index" "$C_RESET" "$C_BRIGHT_MAGENTA" "$tag" "$C_RESET" \
-      "$C_BRIGHT_WHITE" "$(protocol_label "$protocol")" "$C_RESET" \
+      "$C_BRIGHT_WHITE" "$(node_type_label "$protocol")" "$C_RESET" \
       "$C_BRIGHT_WHITE" "$node" "$C_RESET"
   done <"$NODES_CONFIG" 3<"$NODES_FILE"
   printf '\n'
