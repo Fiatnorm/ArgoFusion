@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-VERSION="2.15.0"
+VERSION="2.15.1"
 PROJECT_NAME="ArgoFusion"
 PROJECT_CODE="AFS"
 COMMAND_NAME="af"
@@ -931,8 +931,7 @@ write_sing_box_config() {
         printf '"transport":{"type":"ws","path":"%s"}}' "$path" >>"$SING_BOX_CONFIG"
         ;;
       *)
-        printf '"transport":{"type":"ws","path":"%s","max_early_data":2560,"early_data_header_name":"Sec-WebSocket-Protocol"},' "$path" >>"$SING_BOX_CONFIG"
-        printf '"multiplex":{"enabled":true,"padding":true,"brutal":{"enabled":false,"up_mbps":1000,"down_mbps":1000}}}' >>"$SING_BOX_CONFIG"
+        printf '"transport":{"type":"ws","path":"%s","max_early_data":2560,"early_data_header_name":"Sec-WebSocket-Protocol"}}' "$path" >>"$SING_BOX_CONFIG"
         ;;
     esac
   done <"$NODES_CONFIG"
@@ -1222,20 +1221,20 @@ generate_nodes() {
     encoded_path="%2F${path#/}"
     vmess_path="$path"
     case "$protocol" in
-      vless) printf 'vless://%s@%s:%s?encryption=none&security=tls&sni=%s&fp=chrome&alpn=http%%2F1.1&insecure=0&allowInsecure=0&type=ws&host=%s&path=%s&packetEncoding=xudp#%s\n' \
+      vless) printf 'vless://%s@%s:%s?encryption=none&security=tls&sni=%s&fp=chrome&insecure=0&allowInsecure=0&type=ws&host=%s&path=%s&packetEncoding=xudp#%s\n' \
         "$UUID" "$uri_server" "$SERVER_PORT" "$ARGO_DOMAIN" "$ARGO_DOMAIN" "${encoded_path}%3Fed%3D2560" "$tag" >>"$NODES_FILE" ;;
-      trojan) printf 'trojan://%s@%s:%s?security=tls&sni=%s&fp=chrome&alpn=http%%2F1.1&insecure=0&allowInsecure=0&type=ws&host=%s&path=%s#%s\n' \
+      trojan) printf 'trojan://%s@%s:%s?security=tls&sni=%s&fp=chrome&insecure=0&allowInsecure=0&type=ws&host=%s&path=%s#%s\n' \
         "$UUID" "$uri_server" "$SERVER_PORT" "$ARGO_DOMAIN" "$ARGO_DOMAIN" "${encoded_path}%3Fed%3D2560" "$tag" >>"$NODES_FILE" ;;
       vmess)
         vmess_path+="?ed=2560"
-        vmess_json="{\"v\":\"2\",\"ps\":\"${tag}\",\"add\":\"${SERVER}\",\"port\":\"${SERVER_PORT}\",\"id\":\"${UUID}\",\"aid\":\"0\",\"scy\":\"aes-128-gcm\",\"net\":\"ws\",\"type\":\"none\",\"host\":\"${ARGO_DOMAIN}\",\"path\":\"${vmess_path}\",\"tls\":\"tls\",\"sni\":\"${ARGO_DOMAIN}\",\"fp\":\"chrome\",\"alpn\":\"http/1.1\",\"packetEncoding\":\"xudp\"}"
+        vmess_json="{\"v\":\"2\",\"ps\":\"${tag}\",\"add\":\"${SERVER}\",\"port\":\"${SERVER_PORT}\",\"id\":\"${UUID}\",\"aid\":\"0\",\"scy\":\"aes-128-gcm\",\"net\":\"ws\",\"type\":\"none\",\"host\":\"${ARGO_DOMAIN}\",\"path\":\"${vmess_path}\",\"tls\":\"tls\",\"sni\":\"${ARGO_DOMAIN}\",\"fp\":\"chrome\",\"alpn\":\"\",\"packetEncoding\":\"xudp\"}"
         vmess_link="$(printf '%s' "$vmess_json" | base64 -w 0)"
         printf 'vmess://%s\n' "$vmess_link" >>"$NODES_FILE" ;;
       vless-xhttp) printf 'vless://%s@%s:%s?encryption=none&security=tls&sni=%s&fp=chrome&alpn=h2%%2Chttp%%2F1.1&type=xhttp&host=%s&path=%s&mode=auto#%s\n' \
         "$UUID" "$uri_server" "$SERVER_PORT" "$ARGO_DOMAIN" "$ARGO_DOMAIN" "$encoded_path" "$tag" >>"$NODES_FILE" ;;
       shadowsocks)
         ss_credential="$(printf '%s:%s' "$SHADOWSOCKS_METHOD" "$UUID" | base64 -w 0)"
-        printf 'ss://%s@%s:%s?plugin=v2ray-plugin%%3Bmode%%3Dwebsocket%%3Bhost%%3D%s%%3Bpath%%3D%s%%3Btls%%3Dtrue%%3Bservername%%3D%s%%3Bskip-cert-verify%%3Dfalse%%3Bmux%%3D0&uot=1#%s\n' \
+        printf 'ss://%s@%s:%s?plugin=v2ray-plugin%%3Bmux%%3D0%%3Bmode%%3Dwebsocket%%3Bhost%%3D%s%%3Bpath%%3D%s%%3Btls%%3Dtrue%%3Bservername%%3D%s%%3Bskip-cert-verify%%3Dfalse&uot=1#%s\n' \
           "$ss_credential" "$uri_server" "$SERVER_PORT" "$ARGO_DOMAIN" "$encoded_path" "$ARGO_DOMAIN" "$tag" >>"$NODES_FILE"
         ;;
     esac
@@ -1257,7 +1256,7 @@ generate_nodes() {
         "$tag" "$SERVER" "$SERVER_PORT" "$UUID" "$ARGO_DOMAIN" "$path" "$ARGO_DOMAIN" "$clash_early_data" ;;
       vless-xhttp) printf '  - {name: "%s", type: vless, server: "%s", port: %s, uuid: %s, udp: true, tls: true, network: xhttp, alpn: [h2, http/1.1], servername: %s, client-fingerprint: chrome, encryption: "", xhttp-opts: {path: "%s", host: %s, mode: auto}}\n' \
         "$tag" "$SERVER" "$SERVER_PORT" "$UUID" "$ARGO_DOMAIN" "$path" "$ARGO_DOMAIN" ;;
-      shadowsocks) printf '  - {name: "%s", type: ss, server: "%s", port: %s, cipher: %s, password: %s, udp: true, plugin: v2ray-plugin, plugin-opts: {mode: websocket, host: %s, path: "%s", tls: true, servername: %s, skip-cert-verify: false, mux: false}}\n' \
+      shadowsocks) printf '  - {name: "%s", type: ss, server: "%s", port: %s, cipher: %s, password: %s, udp: true, plugin: v2ray-plugin, plugin-opts: {mux: false, mode: websocket, host: %s, path: "%s", tls: true, servername: %s, skip-cert-verify: false}}\n' \
         "$tag" "$SERVER" "$SERVER_PORT" "$SHADOWSOCKS_METHOD" "$UUID" "$ARGO_DOMAIN" "$path" "$ARGO_DOMAIN" ;;
     esac
   done <"$NODES_CONFIG" >>"$SUB_CLASH_FILE"
@@ -1277,7 +1276,7 @@ generate_nodes() {
           "$tag" "$SERVER" "$SERVER_PORT" "$UUID" "$ARGO_DOMAIN" "$path" "$ARGO_DOMAIN" >>"$SUB_SING_BOX_FILE"
         ;;
       shadowsocks)
-        printf '{"type":"shadowsocks","tag":"%s","server":"%s","server_port":%s,"method":"%s","password":"%s","udp_over_tcp":{"enabled":true,"version":2},"plugin":"v2ray-plugin","plugin_opts":"mode=websocket;host=%s;path=%s;tls=true;servername=%s;skip-cert-verify=false;mux=0"}' \
+        printf '{"type":"shadowsocks","tag":"%s","server":"%s","server_port":%s,"method":"%s","password":"%s","udp_over_tcp":{"enabled":true,"version":2},"plugin":"v2ray-plugin","plugin_opts":"mux=0;mode=websocket;host=%s;path=%s;tls=true;servername=%s;skip-cert-verify=false"}' \
           "$tag" "$SERVER" "$SERVER_PORT" "$SHADOWSOCKS_METHOD" "$UUID" "$ARGO_DOMAIN" "$path" "$ARGO_DOMAIN" >>"$SUB_SING_BOX_FILE"
         ;;
       *)
@@ -1288,12 +1287,20 @@ generate_nodes() {
           vmess) printf '"uuid":"%s","security":"aes-128-gcm","alter_id":0,"packet_encoding":"xudp",' "$UUID" >>"$SUB_SING_BOX_FILE" ;;
           vless) printf '"uuid":"%s","flow":"","packet_encoding":"xudp",' "$UUID" >>"$SUB_SING_BOX_FILE" ;;
         esac
-        printf '"tls":{"enabled":true,"server_name":"%s","insecure":false,"alpn":["http/1.1"],"utls":{"enabled":true,"fingerprint":"chrome"}},"transport":{"type":"ws","path":"%s","headers":{"Host":"%s"}%s}}' \
+        printf '"tls":{"enabled":true,"server_name":"%s","insecure":false,"utls":{"enabled":true,"fingerprint":"chrome"}},"transport":{"type":"ws","path":"%s","headers":{"Host":"%s"}%s}}' \
           "$ARGO_DOMAIN" "$path" "$ARGO_DOMAIN" "$sing_box_early_data" >>"$SUB_SING_BOX_FILE"
         ;;
     esac
   done <"$NODES_CONFIG"
   printf ']}\n' >>"$SUB_SING_BOX_FILE"
+  if grep -Fq '|shadowsocks|' "$NODES_CONFIG"; then
+    grep -Fq 'v2ray-plugin%3Bmux%3D0%3Bmode%3Dwebsocket' "$NODES_FILE" ||
+      die "Shadowsocks 原始订阅缺少 mux=0。"
+    grep -Fq 'plugin-opts: {mux: false,' "$SUB_CLASH_FILE" ||
+      die "Shadowsocks Clash 订阅缺少 mux=false。"
+    grep -Fq '"plugin_opts":"mux=0;mode=websocket;' "$SUB_SING_BOX_FILE" ||
+      die "Shadowsocks Sing-box 订阅缺少 mux=0。"
+  fi
   chmod 644 "$SUB_BASE64_FILE"
   chmod 644 "$SUB_CLASH_FILE" "$SUB_SING_BOX_FILE" \
     "$SUB_AUTO_QR_FILE"

@@ -1,10 +1,10 @@
-# ArgoFusion AFS v2.15.0 · 终端 UI / 文案设计稿
+# ArgoFusion AFS v2.15.1 · 终端 UI / 文案设计稿
 
 > 设计依据：`ArgoFusion_AFS_v2.14.12_TERMINAL_UI_DESIGN_v3.md`
 >
 > 对照脚本：`argofusion.sh`
 >
-> 适用版本：ArgoFusion · AFS v2.15.0
+> 适用版本：ArgoFusion · AFS v2.15.1
 
 核心目标：**术语准确、文案等宽、布局工整、状态鲜明、交互精炼。** 本文是终端输出的唯一视觉合同；更新可见终端输出时，必须同步脚本、本文、README 与 `AGENTS.md`。
 
