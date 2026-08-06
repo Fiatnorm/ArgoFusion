@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-VERSION="2.15.2"
+VERSION="2.16.0"
 PROJECT_NAME="ArgoFusion"
 PROJECT_CODE="AFS"
 COMMAND_NAME="af"
@@ -27,6 +27,7 @@ BIN_DIR="${WORK_DIR}/bin"
 BACKUP_DIR="${WORK_DIR}/backup"
 MANAGED_FILE="${WORK_DIR}/managed"
 NODES_CONFIG="${CONFIG_DIR}/nodes.conf"
+TRAFFIC_DB="${DATA_DIR}/traffic.db"
 SUB_FILE="${SUBSCRIPTION_DIR}/subscription.txt"
 SUB_BASE64_FILE="${SUBSCRIPTION_DIR}/subscription.base64"
 SUB_CLASH_FILE="${SUBSCRIPTION_DIR}/subscription.clash.yaml"
@@ -36,6 +37,8 @@ OBSOLETE_CLASH_PROVIDER_FILE="${SUBSCRIPTION_DIR}/subscription.proxies.yaml"
 SUB_AUTO_QR_FILE="${SUBSCRIPTION_DIR}/subscription.auto.svg"
 SING_SERVICE="afs-core"
 ARGO_SERVICE="afs-tunnel"
+TRAFFIC_SERVICE="afs-traffic"
+TRAFFIC_TIMER="afs-traffic"
 PREVIOUS_SING_SERVICE="argofusion-core"
 PREVIOUS_ARGO_SERVICE="argofusion-tunnel"
 LEGACY_SING_SERVICE="asb-sing-box"
@@ -51,6 +54,7 @@ DEFAULT_CLOUDFLARED_VERSION="2026.7.3"
 SHADOWSOCKS_METHOD="chacha20-ietf-poly1305"
 
 DEFAULT_ORIGIN_PORT=3010
+DEFAULT_STATS_API_PORT=18085
 ORIGIN_PORT="$DEFAULT_ORIGIN_PORT"
 
 UI_WIDTH=64
@@ -369,6 +373,7 @@ load_env() {
   WARP_PROXY_PORT="${WARP_PROXY_PORT:-40000}"
   WARP_DOMAINS="${WARP_DOMAINS:-}"
   CORE="${CORE:-sing-box}"
+  STATS_API_PORT="${STATS_API_PORT:-$DEFAULT_STATS_API_PORT}"
 }
 
 ensure_project_layout() {
@@ -458,6 +463,7 @@ save_env() {
     printf 'WARP_PROXY_PORT=%q\n' "$WARP_PROXY_PORT"
     printf 'WARP_DOMAINS=%q\n' "$WARP_DOMAINS"
     printf 'CORE=%q\n' "$CORE"
+    printf 'STATS_API_PORT=%q\n' "$STATS_API_PORT"
   } >"$temp"
   chmod 600 "$temp"
   mv -f "$temp" "$ENV_FILE"
@@ -503,8 +509,11 @@ validate_environment() {
   [[ "$SERVER" =~ ^[A-Za-z0-9._:-]+$ ]] || die "优选入口格式不正确。"
   valid_port "$SERVER_PORT" || die "优选入口端口无效。"
   valid_port "$ORIGIN_PORT" || die "Argo 回源端口无效。"
+  valid_port "$STATS_API_PORT" || die "流量统计 API 端口无效。"
+  ((10#$STATS_API_PORT != 10#$ORIGIN_PORT)) || die "流量统计 API 端口不能与 Argo 回源端口相同。"
   if [[ "$WARP_ENABLED" == "1" ]]; then
     valid_port "$WARP_PROXY_PORT" || die "WARP 本地代理端口无效。"
+    ((10#$WARP_PROXY_PORT != 10#$STATS_API_PORT)) || die "WARP 代理端口不能与流量统计 API 端口相同。"
     normalize_warp_domains "$WARP_DOMAINS" >/dev/null
   fi
 }
@@ -601,6 +610,7 @@ validate_nodes_config() {
     [[ "$protocol" =~ ^(vless|vmess|trojan|vless-xhttp|shadowsocks)$ ]] || die "不支持的节点协议：${protocol}"
     valid_path "$path" || die "传输路径格式错误：${path}"
     valid_port "$port" || die "节点端口错误：${port}"
+    ((10#$port != 10#$STATS_API_PORT)) || die "节点端口与流量统计 API 端口冲突：${port}"
     [[ "$seen_tags" != *"|${tag}|"* && "$seen_paths" != *"|${path}|"* &&
       "$seen_ports" != *"|${port}|"* ]] || die "节点标签、路径或端口重复。"
     seen_tags+="${tag}|"; seen_paths+="${path}|"; seen_ports+="${port}|"
@@ -657,7 +667,7 @@ fetch_latest_installer() {
 install_dependencies() {
   command -v apt-get >/dev/null 2>&1 || die "轻量版仅支持使用 apt 的 Debian/Ubuntu。"
   apt-get update
-  DEBIAN_FRONTEND=noninteractive apt-get install -y curl ca-certificates nginx openssl tar unzip qrencode
+  DEBIAN_FRONTEND=noninteractive apt-get install -y curl ca-certificates nginx openssl tar unzip qrencode jq sqlite3 util-linux
 }
 
 install_cloudflare_warp() {
@@ -948,7 +958,19 @@ write_sing_box_config() {
     printf ',{"type":"socks","tag":"socks-%s","server":"%s","server_port":%s,"version":"5","username":"%s","password":"%s"}' \
       "$tag" "$host" "$proxy_port" "$username" "$password" >>"$SING_BOX_CONFIG"
   done <"$NODES_CONFIG"
-  printf '],"route":{"rules":[' >>"$SING_BOX_CONFIG"; first=1
+  printf '],"experimental":{"v2ray_api":{"listen":"127.0.0.1:%s","stats":{"enabled":true,"inbounds":[' \
+    "$STATS_API_PORT" >>"$SING_BOX_CONFIG"
+  first=1
+  while IFS='|' read -r tag protocol path port socks; do
+    ((first)) || printf ',' >>"$SING_BOX_CONFIG"; first=0
+    printf '"%s"' "$tag" >>"$SING_BOX_CONFIG"
+  done <"$NODES_CONFIG"
+  printf '],"outbounds":["direct"' >>"$SING_BOX_CONFIG"
+  [[ "$WARP_ENABLED" == "1" ]] && printf ',"warp"' >>"$SING_BOX_CONFIG"
+  while IFS='|' read -r tag protocol path port socks; do
+    [[ -n "$socks" ]] && printf ',"socks-%s"' "$tag" >>"$SING_BOX_CONFIG"
+  done <"$NODES_CONFIG"
+  printf ']}}},"route":{"rules":[' >>"$SING_BOX_CONFIG"; first=1
   if [[ "$WARP_ENABLED" == "1" ]]; then
     printf '{"action":"sniff"},{"domain_suffix":[' >>"$SING_BOX_CONFIG"
     warp_domains_json >>"$SING_BOX_CONFIG"
@@ -970,7 +992,11 @@ write_xray_config() {
   ensure_nodes_config
   validate_environment
   validate_nodes_config
-  printf '{"log":{"loglevel":"warning"},"inbounds":[\n' >"$XRAY_CONFIG"
+  printf '{"api":{"tag":"api","listen":"127.0.0.1:%s","services":["StatsService"]},' \
+    "$STATS_API_PORT" >"$XRAY_CONFIG"
+  printf '"stats":{},"policy":{"system":{"statsInboundUplink":true,"statsInboundDownlink":true,"statsOutboundUplink":true,"statsOutboundDownlink":true}},' \
+    >>"$XRAY_CONFIG"
+  printf '"log":{"loglevel":"warning"},"inbounds":[\n' >>"$XRAY_CONFIG"
   while IFS='|' read -r tag protocol path port socks; do
     ((first)) || printf ',\n' >>"$XRAY_CONFIG"; first=0
     core_protocol="$protocol"
@@ -1175,6 +1201,7 @@ User=root
 WorkingDirectory=${WORK_DIR}
 ExecStart=${binary} run -c ${config}
 ExecReload=/bin/kill -HUP \$MAINPID
+ExecStop=-${LOCAL_SCRIPT} --traffic-collect
 Restart=on-failure
 RestartSec=10
 LimitNOFILE=infinity
@@ -1202,6 +1229,292 @@ NoNewPrivileges=true
 WantedBy=multi-user.target
 EOF
   chmod 600 "/etc/systemd/system/${ARGO_SERVICE}.service"
+
+  cat >"/etc/systemd/system/${TRAFFIC_SERVICE}.service" <<EOF
+[Unit]
+Description=ArgoFusion 流量统计采集
+After=${SING_SERVICE}.service
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=-${LOCAL_SCRIPT} --traffic-collect
+NoNewPrivileges=true
+EOF
+  chmod 600 "/etc/systemd/system/${TRAFFIC_SERVICE}.service"
+
+  cat >"/etc/systemd/system/${TRAFFIC_TIMER}.timer" <<EOF
+[Unit]
+Description=ArgoFusion 流量统计定时器
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=1min
+AccuracySec=10s
+Persistent=true
+Unit=${TRAFFIC_SERVICE}.service
+
+[Install]
+WantedBy=timers.target
+EOF
+  chmod 600 "/etc/systemd/system/${TRAFFIC_TIMER}.timer"
+}
+
+ensure_traffic_database() {
+  command -v sqlite3 >/dev/null 2>&1 || return 1
+  ensure_project_layout
+  sqlite3 "$TRAFFIC_DB" >/dev/null <<'SQL'
+PRAGMA journal_mode=WAL;
+PRAGMA synchronous=NORMAL;
+CREATE TABLE IF NOT EXISTS meta (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS totals (
+  kind TEXT NOT NULL CHECK (kind IN ('inbound', 'outbound')),
+  tag TEXT NOT NULL,
+  uplink INTEGER NOT NULL DEFAULT 0 CHECK (uplink >= 0),
+  downlink INTEGER NOT NULL DEFAULT 0 CHECK (downlink >= 0),
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (kind, tag)
+);
+CREATE TABLE IF NOT EXISTS baselines (
+  core TEXT NOT NULL,
+  counter_name TEXT NOT NULL,
+  process_token TEXT NOT NULL,
+  value INTEGER NOT NULL CHECK (value >= 0),
+  PRIMARY KEY (core, counter_name)
+);
+INSERT INTO meta(key, value) VALUES('started_at', datetime('now', 'localtime'))
+  ON CONFLICT(key) DO NOTHING;
+SQL
+  chmod 600 "$TRAFFIC_DB"
+}
+
+traffic_collect() (
+  local pid start_time process_token stats_json samples core_name actual_binary
+  load_env
+  valid_port "$STATS_API_PORT" || return 1
+  command -v jq >/dev/null 2>&1 || return 1
+  [[ -x "${BIN_DIR}/xray" ]] || return 1
+  ensure_traffic_database || return 1
+  exec 9>"${DATA_DIR}/traffic.lock"
+  flock -w 10 9 || return 1
+  chmod 600 "${DATA_DIR}/traffic.lock"
+
+  pid="$(systemctl show "$SING_SERVICE" -p MainPID --value 2>/dev/null || true)"
+  [[ "$pid" =~ ^[1-9][0-9]*$ && -r "/proc/${pid}/stat" ]] || return 1
+  actual_binary="$(readlink -f "/proc/${pid}/exe" 2>/dev/null || true)"
+  actual_binary="${actual_binary% (deleted)}"
+  case "${actual_binary##*/}" in
+    sing-box) core_name="sing-box" ;;
+    xray) core_name="xray" ;;
+    *) return 1 ;;
+  esac
+  start_time="$(awk '{print $22}' "/proc/${pid}/stat" 2>/dev/null || true)"
+  [[ "$start_time" =~ ^[0-9]+$ ]] || return 1
+  process_token="${pid}:${start_time}"
+  stats_json="$(timeout 10 "${BIN_DIR}/xray" api statsquery \
+    --server="127.0.0.1:${STATS_API_PORT}" 2>/dev/null)" || return 1
+  jq -e '(.stat // []) | type == "array"' >/dev/null 2>&1 <<<"$stats_json" || return 1
+  samples="$(jq -r '
+    .stat[]? |
+    select((.name | type) == "string" and (.value | type) == "number" and .value >= 0) |
+    select(.name | test("^(inbound|outbound)>>>[A-Za-z0-9_-]+>>>traffic>>>(uplink|downlink)$")) |
+    [.name, (.value | floor | tostring)] | @tsv
+  ' <<<"$stats_json")" || return 1
+
+  {
+    printf '%s\n' 'BEGIN IMMEDIATE;'
+    printf '%s\n' 'CREATE TEMP TABLE samples (counter_name TEXT PRIMARY KEY, kind TEXT NOT NULL, tag TEXT NOT NULL, direction TEXT NOT NULL, process_token TEXT NOT NULL, value INTEGER NOT NULL);'
+    while IFS=$'\t' read -r counter_name value; do
+      [[ "$counter_name" =~ ^(inbound|outbound)\>\>\>([A-Za-z0-9_-]+)\>\>\>traffic\>\>\>(uplink|downlink)$ ]] || continue
+      printf "INSERT INTO samples VALUES('%s','%s','%s','%s','%s',%s);\n" \
+        "$counter_name" "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" "${BASH_REMATCH[3]}" \
+        "$process_token" "$value"
+    done <<<"$samples"
+    cat <<SQL
+WITH deltas AS (
+  SELECT s.kind, s.tag, s.direction,
+    CASE WHEN b.process_token = s.process_token AND s.value >= b.value
+      THEN s.value - b.value ELSE s.value END AS delta
+  FROM samples AS s
+  LEFT JOIN baselines AS b
+    ON b.core = '${core_name}' AND b.counter_name = s.counter_name
+)
+INSERT INTO totals(kind, tag, uplink, downlink, updated_at)
+SELECT kind, tag,
+  SUM(CASE WHEN direction = 'uplink' THEN delta ELSE 0 END),
+  SUM(CASE WHEN direction = 'downlink' THEN delta ELSE 0 END),
+  datetime('now', 'localtime')
+FROM deltas WHERE 1 GROUP BY kind, tag
+ON CONFLICT(kind, tag) DO UPDATE SET
+  uplink = totals.uplink + excluded.uplink,
+  downlink = totals.downlink + excluded.downlink,
+  updated_at = excluded.updated_at;
+INSERT INTO baselines(core, counter_name, process_token, value)
+SELECT '${core_name}', counter_name, process_token, value FROM samples WHERE 1
+ON CONFLICT(core, counter_name) DO UPDATE SET
+  process_token = excluded.process_token,
+  value = excluded.value;
+INSERT INTO meta(key, value) VALUES('last_collect_at', datetime('now', 'localtime'))
+ON CONFLICT(key) DO UPDATE SET value = excluded.value;
+COMMIT;
+SQL
+  } | sqlite3 -batch "$TRAFFIC_DB" >/dev/null
+)
+
+traffic_reset() (
+  local clear_baselines=0
+  if systemctl is-active --quiet "$SING_SERVICE"; then
+    traffic_collect || die "当前核心的统计计数读取失败，未重置历史数据。"
+  else
+    clear_baselines=1
+  fi
+  ensure_traffic_database || die "缺少 SQLite，无法重置流量统计。"
+  exec 9>"${DATA_DIR}/traffic.lock"
+  flock -w 10 9 || die "流量数据库正忙，请稍后重试。"
+  if ((clear_baselines)); then
+    sqlite3 "$TRAFFIC_DB" "BEGIN IMMEDIATE; DELETE FROM totals; DELETE FROM baselines; INSERT INTO meta(key,value) VALUES('reset_at',datetime('now','localtime')) ON CONFLICT(key) DO UPDATE SET value=excluded.value; COMMIT;"
+  else
+    sqlite3 "$TRAFFIC_DB" "BEGIN IMMEDIATE; DELETE FROM totals; INSERT INTO meta(key,value) VALUES('reset_at',datetime('now','localtime')) ON CONFLICT(key) DO UPDATE SET value=excluded.value; COMMIT;"
+  fi
+)
+
+traffic_rename_tag() (
+  local old_tag="$1" new_tag="$2"
+  [[ "$old_tag" != "$new_tag" && -f "$TRAFFIC_DB" ]] || return 0
+  ensure_traffic_database || return 0
+  exec 9>"${DATA_DIR}/traffic.lock"
+  flock -w 10 9 || return 1
+  sqlite3 "$TRAFFIC_DB" <<SQL
+BEGIN IMMEDIATE;
+INSERT INTO totals(kind, tag, uplink, downlink, updated_at)
+SELECT kind, '${new_tag}', uplink, downlink, updated_at FROM totals
+WHERE kind = 'inbound' AND tag = '${old_tag}'
+ON CONFLICT(kind, tag) DO UPDATE SET
+  uplink = totals.uplink + excluded.uplink,
+  downlink = totals.downlink + excluded.downlink,
+  updated_at = excluded.updated_at;
+DELETE FROM totals WHERE kind = 'inbound' AND tag = '${old_tag}';
+INSERT INTO totals(kind, tag, uplink, downlink, updated_at)
+SELECT kind, 'socks-${new_tag}', uplink, downlink, updated_at FROM totals
+WHERE kind = 'outbound' AND tag = 'socks-${old_tag}'
+ON CONFLICT(kind, tag) DO UPDATE SET
+  uplink = totals.uplink + excluded.uplink,
+  downlink = totals.downlink + excluded.downlink,
+  updated_at = excluded.updated_at;
+DELETE FROM totals WHERE kind = 'outbound' AND tag = 'socks-${old_tag}';
+COMMIT;
+SQL
+)
+
+format_traffic_bytes() {
+  local bytes="${1:-0}" divisor unit whole decimal
+  [[ "$bytes" =~ ^[0-9]+$ ]] || bytes=0
+  if ((bytes < 1024)); then printf '%s B' "$bytes"; return; fi
+  if ((bytes < 1024 * 1024)); then divisor=1024; unit="KB"
+  elif ((bytes < 1024 * 1024 * 1024)); then divisor=$((1024 * 1024)); unit="MB"
+  elif ((bytes < 1024 * 1024 * 1024 * 1024)); then divisor=$((1024 * 1024 * 1024)); unit="GB"
+  else divisor=$((1024 * 1024 * 1024 * 1024)); unit="TB"
+  fi
+  whole=$((bytes / divisor))
+  decimal=$((((bytes % divisor) * 10 + divisor / 2) / divisor))
+  ((decimal >= 10)) && { ((whole+=1)); decimal=0; }
+  printf '%s.%s %s' "$whole" "$decimal" "$unit"
+}
+
+traffic_table_header() {
+  printf '  %s' "$C_BRIGHT_CYAN"
+  pad_right "标签" 14
+  printf '%s  %s' "$C_RESET" "$C_BRIGHT_CYAN"
+  pad_right "上传" 10
+  printf '  '
+  pad_right "下载" 10
+  printf '  合计%s\n' "$C_RESET"
+}
+
+traffic_table_row() {
+  local label up down total
+  label="$(fit_text "$1" 14)"; up="$(format_traffic_bytes "$2")"
+  down="$(format_traffic_bytes "$3")"; total="$(format_traffic_bytes "$(($2 + $3))")"
+  printf '  %s%s%s  %s%10s  %10s  %10s%s\n' "$C_BRIGHT_MAGENTA" "$label" "$C_RESET" \
+    "$C_BRIGHT_WHITE" "$up" "$down" "$total" "$C_RESET"
+}
+
+show_traffic_tables() {
+  local tag protocol path port socks values up down found=0 current_tags="" history
+  traffic_table_header
+  while IFS='|' read -r tag protocol path port socks; do
+    current_tags+="${current_tags:+,}'${tag}'"
+    values="$(sqlite3 -separator '|' "$TRAFFIC_DB" \
+      "SELECT uplink,downlink FROM totals WHERE kind='inbound' AND tag='${tag}';")"
+    [[ -n "$values" ]] || values="0|0"
+    IFS='|' read -r up down <<<"$values"
+    traffic_table_row "$tag" "$up" "$down"
+  done <"$NODES_CONFIG"
+
+  history="$(sqlite3 -separator '|' "$TRAFFIC_DB" \
+    "SELECT tag,uplink,downlink FROM totals WHERE kind='inbound' AND tag NOT IN (${current_tags}) ORDER BY tag;")"
+  if [[ -n "$history" ]]; then
+    section "历史节点"
+    traffic_table_header
+    while IFS='|' read -r tag up down; do
+      traffic_table_row "$tag" "$up" "$down"
+    done <<<"$history"
+  fi
+
+  section "出站统计"
+  traffic_table_header
+  while IFS='|' read -r tag up down; do
+    found=1
+    traffic_table_row "$tag" "$up" "$down"
+  done < <(sqlite3 -separator '|' "$TRAFFIC_DB" \
+    "SELECT tag,uplink,downlink FROM totals WHERE kind='outbound' ORDER BY CASE tag WHEN 'direct' THEN 0 WHEN 'warp' THEN 1 ELSE 2 END, tag;")
+  ((found)) || traffic_table_row "暂无数据" 0 0
+}
+
+traffic_statistics_menu() {
+  local choice answer collected last_collect reset_at
+  require_root
+  [[ -f "$ENV_FILE" && -f "$NODES_CONFIG" ]] || die "${PROJECT_NAME} 尚未安装。"
+  command -v sqlite3 >/dev/null 2>&1 && command -v jq >/dev/null 2>&1 ||
+    die "缺少 jq 或 sqlite3，请执行项目安装更新依赖。"
+  while true; do
+    load_env
+    validate_nodes_config
+    ensure_traffic_database || die "无法初始化流量数据库。"
+    collected=1
+    traffic_collect || collected=0
+    last_collect="$(sqlite3 "$TRAFFIC_DB" "SELECT value FROM meta WHERE key='last_collect_at';")"
+    reset_at="$(sqlite3 "$TRAFFIC_DB" "SELECT value FROM meta WHERE key='reset_at';")"
+    [[ -n "$reset_at" ]] || reset_at="$(sqlite3 "$TRAFFIC_DB" "SELECT value FROM meta WHERE key='started_at';")"
+    brand "${PROJECT_NAME} · 流量统计" back
+    subsection "统计状态"
+    state_value "定时采集" "$({ systemctl is-active --quiet "${TRAFFIC_TIMER}.timer" && printf '运行中'; } || printf '已停止') · 每分钟"
+    key_value "统计起点" "${reset_at:-未知}"
+    key_value "最近采集" "${last_collect:-尚未采集}"
+    ((collected)) || yellow "当前核心计数暂不可读，以下显示已持久化数据。"
+    subsection "入站统计"
+    show_traffic_tables
+    section "统计操作"
+    menu_item 1 "刷新统计"
+    menu_item 2 "重置统计"
+    menu_item 0 "返回上级"
+    ui_line
+    read_choice "请选择："; choice="$REPLY"
+    case "$choice" in
+      1) continue ;;
+      2)
+        read_input "确认清空全部历史流量？[Y/n]：" answer
+        is_confirmed "$answer" || { yellow "已取消重置。"; continue; }
+        traffic_reset
+        green "流量统计已重置。"
+        ;;
+      0) return ;;
+      *) yellow "请输入 0、1 或 2。" ;;
+    esac
+  done
 }
 
 generate_nodes() {
@@ -1390,6 +1703,18 @@ health_check() {
         failed=1
       fi
     done
+    if systemctl is-active --quiet "${TRAFFIC_TIMER}.timer"; then
+      green "流量统计定时器运行正常。"
+    else
+      red "流量统计定时器未运行。"
+      failed=1
+    fi
+    if traffic_collect; then
+      green "双核心流量统计已通过。"
+    else
+      red "双核心流量统计无效。"
+      failed=1
+    fi
   fi
 
   while read -r port; do
@@ -1397,7 +1722,7 @@ health_check() {
       red "本地端口 ${port} 未监听。"
       failed=1
     fi
-  done < <(printf '%s\n' "$ORIGIN_PORT"; cut -d'|' -f4 "$NODES_CONFIG")
+  done < <(printf '%s\n' "$ORIGIN_PORT" "$STATS_API_PORT"; cut -d'|' -f4 "$NODES_CONFIG")
 
   while IFS='|' read -r tag protocol path port socks; do
     curl_status=0
@@ -1747,20 +2072,20 @@ install_project() {
   create_local_command "$installer_source"
   rm -f "$installer_source"
   systemctl daemon-reload
-  systemctl enable nginx "$SING_SERVICE" "$ARGO_SERVICE"
+  systemctl enable nginx "$SING_SERVICE" "$ARGO_SERVICE" "${TRAFFIC_TIMER}.timer"
   stop_conflicting_sing_box_services
   stop_orphan_project_listeners
   if ! wait_for_node_ports_free; then
     report_node_port_owners >&2
     die "节点端口仍被未知进程占用。为避免终止第三方服务，安装已停止。"
   fi
-  systemctl restart nginx "$SING_SERVICE" "$ARGO_SERVICE"
+  systemctl restart nginx "$SING_SERVICE" "$ARGO_SERVICE" "${TRAFFIC_TIMER}.timer"
   if wait_for_services; then
     : # 完整健康检查通过前，保留旧服务与目录兼容链接以便回退。
   else
     yellow "新服务尚未全部启动，已保留旧服务文件以便排查。"
     if ((LEGACY_MIGRATED)); then
-      systemctl disable --now "$SING_SERVICE" "$ARGO_SERVICE" 2>/dev/null || true
+      systemctl disable --now "${TRAFFIC_TIMER}.timer" "$SING_SERVICE" "$ARGO_SERVICE" 2>/dev/null || true
       systemctl restart "$PREVIOUS_SING_SERVICE" "$PREVIOUS_ARGO_SERVICE" \
         "$LEGACY_SING_SERVICE" "$LEGACY_ARGO_SERVICE" 2>/dev/null || true
       yellow "已先停用新服务再恢复旧服务，避免新旧 sing-box 同时抢占节点端口。"
@@ -1777,7 +2102,7 @@ install_project() {
   else
     yellow "安装已完成，但服务检查未全部通过；请修复后再使用节点。"
     if ((LEGACY_MIGRATED)); then
-      systemctl disable --now "$SING_SERVICE" "$ARGO_SERVICE" 2>/dev/null || true
+      systemctl disable --now "${TRAFFIC_TIMER}.timer" "$SING_SERVICE" "$ARGO_SERVICE" 2>/dev/null || true
       systemctl restart "$PREVIOUS_SING_SERVICE" "$PREVIOUS_ARGO_SERVICE" \
         "$LEGACY_SING_SERVICE" "$LEGACY_ARGO_SERVICE" 2>/dev/null || true
       yellow "已恢复旧服务并保留旧目录兼容链接。"
@@ -1820,6 +2145,7 @@ begin_config_change() {
   CONFIG_SNAPSHOT="$(mktemp -d)"
   cp -a "$ENV_FILE" "$NODES_CONFIG" "$SING_BOX_CONFIG" "$XRAY_CONFIG" "$NGINX_CONFIG" \
     "/etc/systemd/system/${SING_SERVICE}.service" "/etc/systemd/system/${ARGO_SERVICE}.service" \
+    "/etc/systemd/system/${TRAFFIC_SERVICE}.service" "/etc/systemd/system/${TRAFFIC_TIMER}.timer" \
     "$NODES_FILE" "$SUB_FILE" "$SUB_BASE64_FILE" "$SUB_CLASH_FILE" \
     "$OBSOLETE_CLASH_PROVIDER_FILE" "$SUB_SING_BOX_FILE" "$OBSOLETE_SUBSCRIPTION_FILE" \
     "$SUB_AUTO_QR_FILE" \
@@ -1853,6 +2179,8 @@ apply_runtime_config() {
   [[ -f "$snapshot/argofusion.conf" ]] && install -m 644 "$snapshot/argofusion.conf" "$NGINX_CONFIG"
   [[ -f "$snapshot/${SING_SERVICE}.service" ]] && install -m 600 "$snapshot/${SING_SERVICE}.service" "/etc/systemd/system/${SING_SERVICE}.service"
   [[ -f "$snapshot/${ARGO_SERVICE}.service" ]] && install -m 600 "$snapshot/${ARGO_SERVICE}.service" "/etc/systemd/system/${ARGO_SERVICE}.service"
+  [[ -f "$snapshot/${TRAFFIC_SERVICE}.service" ]] && install -m 600 "$snapshot/${TRAFFIC_SERVICE}.service" "/etc/systemd/system/${TRAFFIC_SERVICE}.service"
+  [[ -f "$snapshot/${TRAFFIC_TIMER}.timer" ]] && install -m 600 "$snapshot/${TRAFFIC_TIMER}.timer" "/etc/systemd/system/${TRAFFIC_TIMER}.timer"
   rm -f "$NODES_FILE" "$SUB_FILE" "$SUB_BASE64_FILE" "$SUB_CLASH_FILE" \
     "$OBSOLETE_CLASH_PROVIDER_FILE" "$SUB_SING_BOX_FILE" "$OBSOLETE_SUBSCRIPTION_FILE" "$SUB_AUTO_QR_FILE"
   [[ -f "$snapshot/$(basename "$NODES_FILE")" ]] && install -m 600 "$snapshot/$(basename "$NODES_FILE")" "$NODES_FILE"
@@ -1928,6 +2256,7 @@ add_node_profile() {
     is_exit_input "$port" && { cancel_config_change; return 0; }
     port="${port:-$default_port}"
     valid_port "$port" || { yellow "端口格式错误，请重新输入。"; continue; }
+    ((10#$port != 10#$STATS_API_PORT)) || { yellow "该端口由流量统计 API 使用，请重新输入。"; continue; }
     awk -F'|' -v port="$port" '$4 == port {found=1} END {exit !found}' "$NODES_CONFIG" &&
       { yellow "监听端口已存在，请重新输入。"; continue; }
     break
@@ -1954,9 +2283,12 @@ change_origin_port() {
   is_exit_input "$value" && { cancel_config_change; return 0; }
   value="${value:-$ORIGIN_PORT}"
   valid_port "$value" || die "端口格式错误。"
+  ((10#$value != 10#$STATS_API_PORT)) || die "Argo 回源端口不能占用流量统计 API 端口 ${STATS_API_PORT}。"
   next_port="$((10#$value + 1))"
   ((next_port + $(wc -l <"$NODES_CONFIG") - 1 <= 65535)) ||
     die "端口过大，无法为全部节点顺延监听端口。"
+  ! ((10#$STATS_API_PORT >= next_port && 10#$STATS_API_PORT < next_port + $(wc -l <"$NODES_CONFIG"))) ||
+    die "顺延后的节点端口会占用流量统计 API 端口 ${STATS_API_PORT}。"
   temp="$(mktemp)"
   awk -F'|' -v OFS='|' -v port="$next_port" '{$4=port++; print}' "$NODES_CONFIG" >"$temp"
   install -m 600 "$temp" "$NODES_CONFIG"
@@ -2036,6 +2368,7 @@ edit_node_profile() {
     is_exit_input "$new_port" && { cancel_config_change; return 0; }
     new_port="${new_port:-$port}"
     valid_port "$new_port" || { yellow "端口格式错误，请重新输入。"; continue; }
+    ((10#$new_port != 10#$STATS_API_PORT)) || { yellow "该端口由流量统计 API 使用，请重新输入。"; continue; }
     awk -F'|' -v wanted="$wanted" -v value="$new_port" '$1 != wanted && $4 == value {found=1} END {exit !found}' "$NODES_CONFIG" &&
       { yellow "监听端口已被其他节点使用，请重新输入。"; continue; }
     port="$new_port"; break
@@ -2054,6 +2387,7 @@ edit_node_profile() {
   install -m 600 "$temp" "$NODES_CONFIG"; rm -f "$temp"
   validate_nodes_config
   apply_runtime_config
+  traffic_rename_tag "$wanted" "$tag" || yellow "节点已修改，但旧标签的历史统计未能迁移。"
 }
 
 configure_warp() {
@@ -2084,6 +2418,7 @@ configure_warp() {
         is_exit_input "$port" && { return_notice; continue; }
         port="${port:-$WARP_PROXY_PORT}"
         valid_port "$port" || die "WARP 代理端口无效。"
+        ((10#$port != 10#$STATS_API_PORT)) || die "WARP 代理端口不能占用流量统计 API 端口 ${STATS_API_PORT}。"
         read_input "WARP 目标 [网址或域名，逗号分隔；${WARP_DOMAINS:-无}]：" targets
         is_exit_input "$targets" && { return_notice; continue; }
         targets="${targets:-$WARP_DOMAINS}"
@@ -2756,8 +3091,9 @@ uninstall_project() {
   is_exit_input "$answer" && { return_notice; return 0; }
   is_confirmed "$answer" && remove_tools=1
 
-  systemctl disable --now "$SING_SERVICE" "$ARGO_SERVICE" 2>/dev/null || true
-  rm -f "/etc/systemd/system/${SING_SERVICE}.service" "/etc/systemd/system/${ARGO_SERVICE}.service"
+  systemctl disable --now "${TRAFFIC_TIMER}.timer" "$TRAFFIC_SERVICE" "$SING_SERVICE" "$ARGO_SERVICE" 2>/dev/null || true
+  rm -f "/etc/systemd/system/${SING_SERVICE}.service" "/etc/systemd/system/${ARGO_SERVICE}.service" \
+    "/etc/systemd/system/${TRAFFIC_SERVICE}.service" "/etc/systemd/system/${TRAFFIC_TIMER}.timer"
   remove_legacy_services
   rm -f "$NGINX_CONFIG" "$LEGACY_NGINX_CONFIG" "$NODES_FILE" "$LEGACY_NODES_FILE"
   for command_link in "/usr/local/bin/${COMMAND_NAME}" /usr/local/bin/AF; do
@@ -2795,7 +3131,7 @@ uninstall_project() {
     systemctl restart nginx 2>/dev/null || true
   fi
   if ((remove_tools)); then
-    purge_installed_packages curl ca-certificates openssl tar unzip qrencode gnupg >/dev/null 2>&1 ||
+    purge_installed_packages curl ca-certificates openssl tar unzip qrencode jq sqlite3 gnupg >/dev/null 2>&1 ||
       yellow "部分通用工具卸载失败，请手工检查。"
   fi
   systemctl daemon-reload
@@ -2826,13 +3162,14 @@ menu() {
     menu_item 2 "服务启停" "${COMMAND_NAME} -a"
     menu_item 3 "核心切换" "${COMMAND_NAME} -p"
     menu_item 4 "参数配置" "${COMMAND_NAME} -c"
-    menu_item 5 "运行诊断" "${COMMAND_NAME} -x"
+    menu_item 5 "流量统计" "${COMMAND_NAME} -t"
+    menu_item 6 "运行诊断" "${COMMAND_NAME} -x"
     section "系统维护"
-    menu_item 6 "项目安装" "${COMMAND_NAME} -i"
-    menu_item 7 "组件更新" "${COMMAND_NAME} -v"
-    menu_item 8 "备份恢复" "${COMMAND_NAME} -k"
-    menu_item 9 "BBR / DD" "${COMMAND_NAME} -b"
-    menu_item 10 "项目卸载" "${COMMAND_NAME} -u"
+    menu_item 7 "项目安装" "${COMMAND_NAME} -i"
+    menu_item 8 "组件更新" "${COMMAND_NAME} -v"
+    menu_item 9 "备份恢复" "${COMMAND_NAME} -k"
+    menu_item 10 "BBR / DD" "${COMMAND_NAME} -b"
+    menu_item 11 "项目卸载" "${COMMAND_NAME} -u"
     menu_item 0 "退出脚本"
     ui_line
     read_choice "请选择："; choice="$REPLY"
@@ -2841,14 +3178,15 @@ menu() {
       2) manage_services ;;
       3) switch_proxy_core ;;
       4) manage_config ;;
-      5) doctor ;;
-      6) install_menu ;;
-      7) sync_versions ;;
-      8) backup_restore_menu ;;
-      9) manage_bbr ;;
-      10) uninstall_project ;;
+      5) traffic_statistics_menu ;;
+      6) doctor ;;
+      7) install_menu ;;
+      8) sync_versions ;;
+      9) backup_restore_menu ;;
+      10) manage_bbr ;;
+      11) uninstall_project ;;
       0) exit 0 ;;
-      *) yellow "请输入 0 到 10。" ;;
+      *) yellow "请输入 0 到 11。" ;;
     esac
   done
 }
@@ -2859,6 +3197,7 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
     -a) manage_services ;;
     -p) switch_proxy_core ;;
     -c) manage_config ;;
+    -t) traffic_statistics_menu ;;
     -x) doctor ;;
     -i)
       if [[ "${2:-}" == "--github-refreshed" ]]; then
@@ -2876,7 +3215,8 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
       ;;
     -b) manage_bbr ;;
     -u) uninstall_project ;;
+    --traffic-collect) traffic_collect ;;
     "") menu ;;
-    *) die "未知参数。可用参数：-n、-a、-p、-c、-x、-i、-v、-k、-b、-u。" ;;
+    *) die "未知参数。可用参数：-n、-a、-p、-c、-t、-x、-i、-v、-k、-b、-u。" ;;
   esac
 fi

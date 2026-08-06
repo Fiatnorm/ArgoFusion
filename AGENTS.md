@@ -23,16 +23,19 @@
 - `/etc/afs/config/sing-box.json`
 - `/etc/afs/config/xray.json`
 - `/etc/afs/data/nodes.txt`
+- `/etc/afs/data/traffic.db`
 - `/etc/afs/subscriptions/subscription.*`
 - `/etc/afs/backup/`
 - `/etc/nginx/conf.d/argofusion.conf`
 - `/etc/systemd/system/afs-core.service`
 - `/etc/systemd/system/afs-tunnel.service`
+- `/etc/systemd/system/afs-traffic.service`
+- `/etc/systemd/system/afs-traffic.timer`
 - `/usr/local/bin/af`（`/usr/local/bin/AF` 为等价入口）
 
 ## 配置与数据格式
 
-`/etc/afs/config/argofusion.env` 由脚本生成并通过 Bash `source` 读取，保存 UUID、Argo 域名、优选入口、Token、回源端口、WARP 配置和当前 `CORE` 选择。必须使用安全转义、`600` 权限和同目录临时文件原子替换；不得把未经验证的用户输入直接拼入该文件或 systemd unit。
+`/etc/afs/config/argofusion.env` 由脚本生成并通过 Bash `source` 读取，保存 UUID、Argo 域名、优选入口、Token、回源端口、WARP 配置、流量统计 API 端口和当前 `CORE` 选择。必须使用安全转义、`600` 权限和同目录临时文件原子替换；不得把未经验证的用户输入直接拼入该文件或 systemd unit。
 
 `/etc/afs/config/nodes.conf` 每行格式为：
 
@@ -44,6 +47,8 @@
 
 生成文件包括原始节点订阅、Base64、Clash/Mihomo、sing-box 与自动适配订阅 QR；活动订阅入口仅保留自适应、Base64、Clash/Mihomo、Sing-box、原始节点订阅五类。Clash Provider 与 Shadowrocket 文件仅可作为迁移、快照回滚和卸载清理的废弃文件，不得重新生成或公开路由。派生数据应由 `generate_nodes()` 统一重建，不应成为独立配置源。`config/` 与 `data/` 必须保持 `700`，但 `/etc/afs/subscriptions/` 必须为 `755`，否则 Nginx 工作进程无法读取 `alias` 订阅文件而返回 403。自适应订阅的 User-Agent 映射必须在 Clash/Mihomo 规则之前识别 Karing，并为 Karing 返回 Base64 URI 订阅，避免 Clash 转换丢失 Shadowsocks `mux=0`；显式 `/clash` 路由仍返回 YAML。Clash/Mihomo 的 WS 节点必须显式启用 UDP，并使用 Chrome 指纹和 `http/1.1` ALPN；原始/Base64 与 Sing-box 的 VLESS/VMess/Trojan WS 使用 Chrome 指纹但不强制 ALPN，交给 TLS 默认协商。VLESS、VMess 订阅保留 XUDP（`packetEncoding=xudp`、`packet-encoding: xudp`、`packet_encoding: "xudp"`）。XHTTP 链接参考 ArgoX 使用 `mode=auto`、Argo Host 与 `h2,http/1.1`；Shadowsocks 链接使用 `v2ray-plugin`、`mux=0` 和 UoT，`mux=0` 必须位于插件参数首位并由 `generate_nodes()` 校验全部三类订阅。Sing-box 的 WS inbound 不得额外启用 multiplex 或 padding；sing-box TLS 保持核心默认版本协商，WS `headers.Host` 必须是字符串。
 
+双核心流量统计统一使用回环 V2Ray Stats API：Sing-box 必须通过 `experimental.v2ray_api` 统计全部节点 inbound 和有效 outbound，Xray 必须启用 `StatsService`、`stats` 与 system policy 的四项 inbound/outbound 计数。`afs-traffic.timer` 每分钟读取非重置计数并将差值持久化到 `/etc/afs/data/traffic.db`；基线必须区分核心、计数器和进程启动标识，计数回退或进程变化时从当前值重新累计。核心停止前必须补采，切换核心、服务重启和配置重建不得清空历史；重置必须先采集当前增量并更新基线。每节点粗略用量以共享 tag 的 inbound 计数为准，共享 direct/WARP outbound 不得伪装成节点级精确分摊。
+
 ## 关键函数职责
 
 - `load_env()` / `save_env()`：读取和原子保存项目环境配置。
@@ -51,6 +56,7 @@
 - `write_sing_box_config()` / `write_xray_config()`：从同一份 `nodes.conf` 分别生成并校验五类节点的两套核心配置；`write_all_core_configs()` 用于首次安装，`write_available_core_configs()` 用于配置事务。两者都必须保持 `WARP → 节点 SOCKS5 → direct` 路由顺序。
 - `write_nginx_config()`：生成本地 WS/XHTTP 反代和 UUID 订阅入口，并执行 `nginx -t`；XHTTP 必须使用边界安全前缀、HTTP/1.1、完整路径和关闭请求缓冲。
 - `write_services()`：只写项目专属 systemd unit；包含 Token 的文件必须仅 root 可读。
+- `traffic_collect()` / `traffic_statistics_menu()`：通过两内核共用的 V2Ray Stats API 采集增量、持久化 SQLite 并提供查看和重置；不得使用 Clash API 代替长期计数。
 - `generate_nodes()`：从环境配置和 `nodes.conf` 生成全部节点及订阅文件。
 - `apply_runtime_config()`：配置修改事务；验证失败必须恢复快照。核心切换模式只重启并验证 Nginx 与选中核心，避免 Argo Tunnel 的无关状态触发回滚。
 - `sync_versions()`：核心版本比较、确认、暂存、校验、原子替换和失败回滚。
@@ -66,6 +72,7 @@
 - 仅支持固定 Argo Token，不加入临时隧道、Argo JSON 或 Cloudflare API 建隧道。
 - 支持 Sing-box 与 Xray 二选一；`af -p` 可在两者间切换，两个私有二进制与 `sing-box.json`、`xray.json` 可同时保留并从统一配置重建。双核心适配 VLESS/VMess/Trojan WS、VLESS XHTTP、Shadowsocks WS，不加入 Reality、Hysteria2 或其他协议。
 - Sing-box 固定从 `Fiatnorm/argofusion-sing-box` 下载项目验证过的正式稳定 Release，校验 GitHub SHA256、下游版本与 `with_v2ray_api` 构建标签，不得回退到 SagerNet 通用构建或预发布/普通构建标签。
+- 双核心统计 API 仅监听 `127.0.0.1`，默认端口 `18085` 必须与回源、节点和 WARP 端口互斥；不得对公网暴露或加入认证凭据。
 - 新安装默认保留 VLESS、VMess、Trojan、VLESS XHTTP、Shadowsocks 各一个节点，并允许通过 `af -c` 动态添加、修改或删除这五类节点；升级已有安装不得自动向用户的 `nodes.conf` 插入新节点。
 - 允许节点按 inbound tag 与传输路径绑定独立 SOCKS5 出站。
 - 允许用户指定目标网址优先通过 Cloudflare 官方 WARP 客户端的本地 SOCKS5 proxy 出站；未命中时仍遵循节点 SOCKS5 或 direct。
@@ -112,6 +119,7 @@
 - `af -c` 必须集中管理 Token、Argo 域名、优选入口、本地端口、UUID、动态节点、节点 SOCKS5 出站和 WARP 目标网址。
 - WARP 域名规则必须位于节点 SOCKS5 规则之前，保持 `目标网址 WARP → 节点 SOCKS5 → direct` 的优先级。
 - `af -x` 必须检查配置、Token、服务、动态端口、全部公网 WS/XHTTP 路径、核心版本、WARP（启用时）和最近日志。
+- `af -t` 必须按“统计状态 → 入站统计 → 出站统计 → 统计操作”显示自上次重置以来的 SQLite 持久数据，并提供刷新和确认重置。入站按当前 `nodes.conf` 顺序展示每个节点；出站只按 direct、WARP、节点 SOCKS5 展示出口总量。
 - `af -k` 必须打开节点配置备份与恢复菜单并校验 `/etc/afs/managed`；只备份和恢复 `/etc/afs/config/nodes.conf` 节点配置，恢复失败必须自动回滚，不得用旧归档覆盖当前脚本、核心或项目目录。子菜单不得另设短命令。
 - 终端配色必须在非 TTY、`TERM=dumb` 或 `NO_COLOR` 环境自动关闭，不得向日志和管道写入 ANSI 控制符。
 - 状态诊断保持简洁，并包含公网 IP、脚本/核心版本、内存、systemd 状态、监听端口和最近错误。
@@ -131,7 +139,7 @@
 - `validate_environment()` 是生成 Sing-box/Xray、Nginx 和订阅文件前的共同边界；已有环境文件中的内核选择、域名、端口、UUID、Token 和 WARP 配置不得绕过校验直接写入运行文件。
 - 终端状态行显示 IPv6 优选入口时必须保留 `[地址]:端口` 形式；订阅 URL 按 UI 设计稿使用白色下划线，不输出额外逐条分隔线。
 - `TERMINAL_UI_DESIGN.md` 是终端输出的视觉合同；更新终端 UI 时必须同步脚本、该设计稿、README 和 AGENTS.md。当前基准采用 ArgoFusion 斜体字标、64 列分隔线、ANSI `97` 亮白正文、`◆ / ▸ / ✓ / ! / ✗ / • / ›` 图标语义，以及 `main/back/cancel/default/none` 五种页面提示模式；提示固定在页面标题右端显示为“0 · 退出 / 返回 / 取消”或“Enter · 默认 | 0 · 取消”，其中 `Enter`、`0` 为亮黄、说明为亮白；显示宽度必须以 `C.UTF-8` 计算。输入统一为“对象 `[约束/默认值]`：”，已有配置只展示当前值，不逐项附加回车说明；新安装的必填项仍须拒绝留空。确认统一为“确认动作？`[Y/n]`：”，支持大小写且留空表示确认；诊断行必须明确展示“已通过 / 无效 / 未运行”。
-- 分区和 64 列分隔线使用亮蓝，键名与字标使用亮青，页面标题与输入使用亮洋红。主菜单固定为“节点订阅、服务启停、核心切换、参数配置、运行诊断、项目安装、组件更新、备份恢复、BBR / DD、项目卸载”，不得改回解释性长句；服务重启属于“服务启停”的子操作，不提供独立短命令；`menu_item()` 的功能列补齐到 28 个显示宽度。
+- 分区和 64 列分隔线使用亮蓝，键名与字标使用亮青，页面标题与输入使用亮洋红。主菜单固定为“节点订阅、服务启停、核心切换、参数配置、流量统计、运行诊断、项目安装、组件更新、备份恢复、BBR / DD、项目卸载”，不得改回解释性长句；服务重启属于“服务启停”的子操作，不提供独立短命令；`menu_item()` 的功能列补齐到 28 个显示宽度。
 - 主面板状态顺序固定为“Argo Tunnel、代理核心、WARP 分流、节点概览、Argo 域名、优选入口、Argo 回源、组件版本”；节点概览固定显示 `Vless n · Vmess n · Trojan n · XHTTP n · SS n`，不显示总数。只读页不显示 `0` 操作提示，普通返回静默，取消配置明确提示但不得写入半成品。所有交互子页面固定按“状态或说明 → 操作”分区。有现有值或默认值的表单统一使用 `Enter · 默认 | 0 · 取消`。核心切换页面和合并信息分区均命名为“核心配置”，操作后继续停留在该页并使用统一的处理中/成功文案，输入 `0` 才返回主面板。参数配置中的节点表固定使用 13/6/14/5/18 显示宽度并限制为 64 列，过长字段以 `~` 截断；协议显示为 Vless、Vmess、Trojan、XHTTP、SS 并使用亮蓝，直连与 SOCKS5 出站统一使用亮紫。仅“查看节点”在节点列表前留一行，增改删页面不留空行。节点增改删必须逐项校验，选择不存在的节点时原地重试。WARP 添加或删除域名留空时不得报错或应用配置。订阅中心保持白底蓝字，指定格式卡片顺序固定为“原始节点订阅、Base64、Clash/Mihomo、Sing-box”。
 - `af -x` 必须诊断 `config`、`data` 的 `700` 与 `subscriptions` 的 `755`；健康时汇总最近日志，出现 ERROR 或诊断失败时才展开相关日志。
 - Xray 配置检查成功时必须静默；失败或展示 Xray 日志时必须过滤配置读取行以及 WebSocket、VMess、Trojan 的已知弃用提醒，只保留实际运行过程与真实错误输出。

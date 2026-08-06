@@ -1,4 +1,4 @@
-# ArgoFusion · AFS v2.15.2
+# ArgoFusion · AFS v2.16.0
 
 面向固定 Argo Token 隧道的中文轻量安装脚本，提供：
 
@@ -8,6 +8,7 @@
 - VLESS + XHTTP + TLS：`/argo-xh`
 - Shadowsocks + WS + TLS：`/argo-sh`
 - 安装及 `af -p` 均可切换 Sing-box / Xray 内核，五类节点、订阅与 Argo 接口保持一致
+- `af -t` 持久统计双核心入站、出站与每个节点的粗略流量，切换核心后继续累计并可重置
 - 自适应订阅、Base64 订阅、Clash/Mihomo 订阅、Sing-box 订阅、原始节点订阅五类入口
 
 TLS 由 Cloudflare 边缘终止；VPS 本机 Nginx 与所选代理内核仅监听回环地址。固定隧道必须在 Cloudflare Zero Trust 添加 Public Hostname，Service 指向 `http://localhost:3010`。Public Hostname 域名必须由安装者输入；Cloudflare 优选入口默认使用 `bestcf.cdn.fiatnorm.us.kg:443`，也可在安装或配置时修改。
@@ -38,15 +39,18 @@ sudo ./argofusion.sh -i
 /etc/afs/config/sing-box.json
 /etc/afs/config/xray.json
 /etc/afs/data/nodes.txt
+/etc/afs/data/traffic.db
 /etc/afs/subscriptions/subscription.*
 /etc/afs/backup/
 ```
 
-项目核心、配置、节点和订阅数据统一保存在 `/etc/afs/`：`bin/` 为私有二进制，`config/` 为环境、节点和核心运行配置，`data/` 为明文节点，`subscriptions/` 为全部订阅产物，`backup/` 为节点备份。根目录仅保留项目脚本与所有权标记。升级安装会将带所有权标记的旧 `/etc/argofusion/` 或 `/etc/asb/` 迁入此目录，并在新服务验证成功后移除旧目录兼容链接；公网订阅 URL 不变。只有 systemd unit、Nginx 站点配置和 `/usr/local/bin/af`、`/usr/local/bin/AF` 命令入口按 Linux 系统约定保存在对应系统目录。服务使用 `afs-core.service` 和 `afs-tunnel.service`，不会覆盖系统已有的通用 `sing-box.service`、`xray.service` 或 `cloudflared.service`。
+项目核心、配置、节点和订阅数据统一保存在 `/etc/afs/`：`bin/` 为私有二进制，`config/` 为环境、节点和核心运行配置，`data/` 为明文节点与 SQLite 流量账本，`subscriptions/` 为全部订阅产物，`backup/` 为节点备份。根目录仅保留项目脚本与所有权标记。升级安装会将带所有权标记的旧 `/etc/argofusion/` 或 `/etc/asb/` 迁入此目录，并在新服务验证成功后移除旧目录兼容链接；公网订阅 URL 不变。只有 systemd unit、Nginx 站点配置和 `/usr/local/bin/af`、`/usr/local/bin/AF` 命令入口按 Linux 系统约定保存在对应系统目录。代理与隧道服务使用 `afs-core.service` 和 `afs-tunnel.service`，流量采集使用 `afs-traffic.service` 与 `afs-traffic.timer`，不会覆盖系统已有的通用 `sing-box.service`、`xray.service` 或 `cloudflared.service`。
 
 升级时仅在旧目录存在 `managed` 所有权标记且 `/etc/afs` 不存在时迁移；`/etc/argofusion` 与 `/etc/asb` 若同时为真实目录，或任一旧目录缺少所有权标记，脚本会停止并要求人工核对。迁移会临时保留旧目录到 `/etc/afs` 的兼容链接；新服务验证通过后才移除旧服务和兼容链接，失败则恢复旧服务。
 
 迁移会先停止旧服务并等待节点端口释放，再启动新服务；若新服务启动失败，会先停用新服务再恢复旧服务，避免两套 sing-box 同时抢占节点端口。重新执行 v2.8.2 安装可修复旧版迁移失败后形成的新旧服务端口冲突。
+
+v2.16.0 增加双核心长期流量统计。Sing-box 与 Xray 均在 `127.0.0.1:18085` 开放 V2Ray Stats API，复用项目 Xray 二进制的 `api statsquery` 读取相同的 inbound/outbound 计数；`afs-traffic.timer` 每分钟计算增量并写入 `/etc/afs/data/traffic.db`。账本按核心、进程启动标识和计数器基线识别重启或回退，核心停止前会补采一次，因此切换核心不会清空历史。`af -t` 显示当前节点入站、direct/WARP/节点 SOCKS5 出站的上传、下载与合计，并可确认重置；节点改名时同步迁移累计值。统计不包含 Cloudflare、cloudflared、Nginx、TLS/WS/XHTTP 封装、重传等额外流量，只适合节点趋势和粗略用量，不等同于 VPS 账单。
 
 v2.15.2 修复 Karing 通过自适应订阅导入 SS+WS 时 `mux=0` 丢失的问题。Karing 会发送由多种兼容标识组成的 User-Agent；旧映射先命中 Clash 并返回 YAML，Karing 在 Clash 转换中会丢弃 v2ray-plugin 的 `mux: false`。`/auto` 现在优先识别 Karing 并返回已经包含 `mux=0` 的 Base64 URI 订阅；显式 `/clash` 仍保持 Clash/Mihomo YAML。更新后应在 Karing 中删除旧的 `CL` 类型订阅并重新添加自适应链接，新的订阅应按 Base64/URI 导入。
 
@@ -206,6 +210,7 @@ sudo ./argofusion.sh -i
 | `sudo af -a` | 打开服务启停，切换 Argo Tunnel、代理核心状态或重启全部服务 |
 | `sudo af -p` | 打开核心切换，切换 Sing-box / Xray 代理核心 |
 | `sudo af -c` | 修改 Token、域名、优选入口、端口、UUID、节点、SOCKS5 与 WARP 域名 |
+| `sudo af -t` | 查看、刷新或重置双核心持久流量统计 |
 | `sudo af -x` | 执行运行诊断、WS 检查并显示最近日志 |
 | `sudo af -v` | 比较版本并更新 Argo/cloudflared 与当前选择的代理内核 |
 | `sudo af -k` | 打开节点备份与恢复菜单 |
@@ -223,12 +228,13 @@ sudo ./argofusion.sh -i
 2. 服务启停 (af -a)
 3. 核心切换 (af -p)
 4. 参数配置 (af -c)
-5. 运行诊断 (af -x)
-6. 项目安装 (af -i)
-7. 组件更新 (af -v)
-8. 备份恢复 (af -k)
-9. BBR / DD (af -b)
-10. 项目卸载 (af -u)
+5. 流量统计 (af -t)
+6. 运行诊断 (af -x)
+7. 项目安装 (af -i)
+8. 组件更新 (af -v)
+9. 备份恢复 (af -k)
+10. BBR / DD (af -b)
+11. 项目卸载 (af -u)
 0. 退出脚本
 ```
 
@@ -247,6 +253,12 @@ sudo ./argofusion.sh -i
 ```
 
 路由按节点 inbound tag 匹配，因此同一种协议的不同传输路径可以使用不同出口。SOCKS5 地址、端口、用户名和密码只写入权限为 `600` 的项目配置；节点分享链接不包含出站凭据。配置变更会重建所有已安装内核的配置并逐一检查、执行 `nginx -t`、重启服务和状态验证，失败时恢复修改前文件。
+
+### 长期流量统计
+
+`af -t` 会先读取当前核心计数，再显示自上次重置以来的持久统计。入站按 `nodes.conf` 的节点标签归属，可粗略表示每个节点的客户端上传、下载与合计；已删除但尚未重置的标签保留在“历史节点”区。出站分别显示共享 `direct`、共享 `warp` 和每个节点独立的 `socks-标签`。由于 direct 与 WARP 可能被多个节点共用，出站视图只能表示出口总量，不能反推各节点份额；每节点用量应以入站视图为准。
+
+定时器每分钟采集，计划内核心停止前再采集一次。数据库不随 Sing-box/Xray 切换、核心重启或配置重建而替换；统计重置会先保存当前增量，再清空累计值并保留新的计数基线，避免旧流量在下一次采集时重新出现。SQLite 账本不包含在仅备份 `nodes.conf` 的节点备份中，卸载项目时会随 `/etc/afs` 一并删除。
 
 主面板、可返回菜单与确认/配置表单分别在标题右端显示“`0 · 退出`”“`0 · 返回`”“`0 · 取消`”，只读页不显示提示；标题过长时提示自动换行。基础项、节点操作和 WARP 子菜单均保留该行为，返回时不会写入半成品配置。
 
