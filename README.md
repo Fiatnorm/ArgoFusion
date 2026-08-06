@@ -1,4 +1,4 @@
-# ArgoFusion · AFS v2.15.1
+# ArgoFusion · AFS v2.15.2
 
 面向固定 Argo Token 隧道的中文轻量安装脚本，提供：
 
@@ -47,6 +47,8 @@ sudo ./argofusion.sh -i
 升级时仅在旧目录存在 `managed` 所有权标记且 `/etc/afs` 不存在时迁移；`/etc/argofusion` 与 `/etc/asb` 若同时为真实目录，或任一旧目录缺少所有权标记，脚本会停止并要求人工核对。迁移会临时保留旧目录到 `/etc/afs` 的兼容链接；新服务验证通过后才移除旧服务和兼容链接，失败则恢复旧服务。
 
 迁移会先停止旧服务并等待节点端口释放，再启动新服务；若新服务启动失败，会先停用新服务再恢复旧服务，避免两套 sing-box 同时抢占节点端口。重新执行 v2.8.2 安装可修复旧版迁移失败后形成的新旧服务端口冲突。
+
+v2.15.2 修复 Karing 通过自适应订阅导入 SS+WS 时 `mux=0` 丢失的问题。Karing 会发送由多种兼容标识组成的 User-Agent；旧映射先命中 Clash 并返回 YAML，Karing 在 Clash 转换中会丢弃 v2ray-plugin 的 `mux: false`。`/auto` 现在优先识别 Karing 并返回已经包含 `mux=0` 的 Base64 URI 订阅；显式 `/clash` 仍保持 Clash/Mihomo YAML。更新后应在 Karing 中删除旧的 `CL` 类型订阅并重新添加自适应链接，新的订阅应按 Base64/URI 导入。
 
 v2.15.1 修复 Shadowsocks+WS 客户端转换后可能丢失 `mux=0` 的问题：原始/Base64、Clash/Mihomo 和 Sing-box 三类订阅均将禁用 v2ray-plugin multiplex 的字段置于插件参数首位，并在生成阶段强制检查。为进一步贴近 ArgoX，Sing-box 的 VLESS/VMess/Trojan WS 服务端不再额外启用带 padding 的 inbound multiplex；通用 URI 与 Sing-box WS 订阅不再强制 ALPN，由 TLS 默认协商，Clash/Mihomo 仍显式使用 `http/1.1`。early-data、Nginx 关闭缓冲与一小时时限、Cloudflared 参数及 XHTTP `mode=auto` 保持与 ArgoX 一致。实际延迟仍受 VPS、优选入口、Cloudflare 路由和测试时刻影响。
 
