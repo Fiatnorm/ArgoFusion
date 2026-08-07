@@ -47,7 +47,7 @@
 
 生成文件包括原始节点订阅、Base64、Clash/Mihomo、sing-box 与自动适配订阅 QR；活动订阅入口仅保留自适应、Base64、Clash/Mihomo、Sing-box、原始节点订阅五类。Clash Provider 与 Shadowrocket 文件仅可作为迁移、快照回滚和卸载清理的废弃文件，不得重新生成或公开路由。派生数据应由 `generate_nodes()` 统一重建，不应成为独立配置源。`config/` 与 `data/` 必须保持 `700`，但 `/etc/afs/subscriptions/` 必须为 `755`，否则 Nginx 工作进程无法读取 `alias` 订阅文件而返回 403。自适应订阅的 User-Agent 映射必须在 Clash/Mihomo 规则之前识别 Karing，并为 Karing 返回 Base64 URI 订阅，避免 Clash 转换丢失 Shadowsocks `mux=0`；显式 `/clash` 路由仍返回 YAML。Clash/Mihomo 的 WS 节点必须显式启用 UDP，并使用 Chrome 指纹和 `http/1.1` ALPN；原始/Base64 与 Sing-box 的 VLESS/VMess/Trojan WS 使用 Chrome 指纹但不强制 ALPN，交给 TLS 默认协商。VLESS、VMess 订阅保留 XUDP（`packetEncoding=xudp`、`packet-encoding: xudp`、`packet_encoding: "xudp"`）。XHTTP 链接参考 ArgoX 使用 `mode=auto`、Argo Host 与 `h2,http/1.1`；Shadowsocks 链接使用 `v2ray-plugin`、`mux=0` 和 UoT，`mux=0` 必须位于插件参数首位并由 `generate_nodes()` 校验全部三类订阅。Sing-box 的 WS inbound 不得额外启用 multiplex 或 padding；sing-box TLS 保持核心默认版本协商，WS `headers.Host` 必须是字符串。
 
-双核心流量统计统一使用回环 V2Ray Stats API：Sing-box 必须通过 `experimental.v2ray_api` 统计全部节点 inbound 和有效 outbound，Xray 必须启用 `StatsService`、`stats` 与 system policy 的四项 inbound/outbound 计数。`afs-traffic.timer` 每分钟读取非重置计数并将差值持久化到 `/etc/afs/data/traffic.db`；基线必须区分核心、计数器和进程启动标识，计数回退或进程变化时从当前值重新累计。核心停止前必须补采，切换核心、服务重启和配置重建不得清空历史；重置必须先采集当前增量并更新基线。每节点粗略用量以共享 tag 的 inbound 计数为准，共享 direct/WARP outbound 不得伪装成节点级精确分摊。
+双核心流量统计统一使用回环 V2Ray Stats API：Sing-box 必须通过 `experimental.v2ray_api` 统计全部节点 inbound 和有效 outbound，Xray 必须启用 `StatsService`、`stats` 与 system policy 的四项 inbound/outbound 计数。采集应优先读取当前核心运行配置的 API 地址，并在地址错位时仅探测当前核心进程持有的回环监听端口；计数值必须兼容 JSON 数字和 protobuf JSON 数字字符串。`afs-traffic.timer` 每分钟读取非重置计数并将差值持久化到 `/etc/afs/data/traffic.db`，进入统计页时应恢复已安装但停止的定时器；基线必须区分核心、计数器和进程启动标识，计数回退或进程变化时从当前值重新累计。核心停止前必须补采，切换核心、服务重启和配置重建不得清空历史；重置必须先采集当前增量并更新基线。每节点粗略用量以共享 tag 的 inbound 计数为准，共享 direct/WARP outbound 不得伪装成节点级精确分摊。
 
 ## 关键函数职责
 
@@ -119,7 +119,7 @@
 - `af -c` 必须集中管理 Token、Argo 域名、优选入口、本地端口、UUID、动态节点、节点 SOCKS5 出站和 WARP 目标网址。
 - WARP 域名规则必须位于节点 SOCKS5 规则之前，保持 `目标网址 WARP → 节点 SOCKS5 → direct` 的优先级。
 - `af -x` 必须检查配置、Token、服务、动态端口、全部公网 WS/XHTTP 路径、核心版本、WARP（启用时）和最近日志。
-- `af -t` 必须按“统计状态 → 入站统计 → 出站统计 → 统计操作”显示自上次重置以来的 SQLite 持久数据，并提供刷新和确认重置。入站按当前 `nodes.conf` 顺序展示每个节点；出站只按 direct、WARP、节点 SOCKS5 展示出口总量。
+- `af -t` 必须按“统计状态 → 入站统计 → 出站统计 → 统计操作”显示自上次重置以来的 SQLite 持久数据，并提供刷新和确认重置。入站按当前 `nodes.conf` 顺序展示每个节点；出站只按 direct、WARP、节点 SOCKS5 展示出口总量；采集失败时必须显示具体失败原因。
 - `af -k` 必须打开节点配置备份与恢复菜单并校验 `/etc/afs/managed`；只备份和恢复 `/etc/afs/config/nodes.conf` 节点配置，恢复失败必须自动回滚，不得用旧归档覆盖当前脚本、核心或项目目录。子菜单不得另设短命令。
 - 终端配色必须在非 TTY、`TERM=dumb` 或 `NO_COLOR` 环境自动关闭，不得向日志和管道写入 ANSI 控制符。
 - 状态诊断保持简洁，并包含公网 IP、脚本/核心版本、内存、systemd 状态、监听端口和最近错误。

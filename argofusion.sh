@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-VERSION="2.16.0"
+VERSION="2.16.1"
 PROJECT_NAME="ArgoFusion"
 PROJECT_CODE="AFS"
 COMMAND_NAME="af"
@@ -28,6 +28,7 @@ BACKUP_DIR="${WORK_DIR}/backup"
 MANAGED_FILE="${WORK_DIR}/managed"
 NODES_CONFIG="${CONFIG_DIR}/nodes.conf"
 TRAFFIC_DB="${DATA_DIR}/traffic.db"
+TRAFFIC_ERROR_FILE="${DATA_DIR}/traffic.last_error"
 SUB_FILE="${SUBSCRIPTION_DIR}/subscription.txt"
 SUB_BASE64_FILE="${SUBSCRIPTION_DIR}/subscription.base64"
 SUB_CLASH_FILE="${SUBSCRIPTION_DIR}/subscription.clash.yaml"
@@ -1291,38 +1292,77 @@ SQL
   chmod 600 "$TRAFFIC_DB"
 }
 
+traffic_stats_samples() {
+  jq -r '
+    .stat[]? |
+    select((.name | type) == "string") |
+    .value as $value |
+    select(($value | type) == "number" or
+      (($value | type) == "string" and ($value | test("^[0-9]+$")))) |
+    ($value | tonumber) as $number |
+    select($number >= 0) |
+    select(.name | test("^(inbound|outbound)>>>[A-Za-z0-9_-]+>>>traffic>>>(uplink|downlink)$")) |
+    [.name, ($number | floor | tostring)] | @tsv
+  '
+}
+
 traffic_collect() (
-  local pid start_time process_token stats_json samples core_name actual_binary
+  local pid start_time process_token stats_json samples core_name actual_binary api_address
+  local candidate query_output
   load_env
-  valid_port "$STATS_API_PORT" || return 1
-  command -v jq >/dev/null 2>&1 || return 1
-  [[ -x "${BIN_DIR}/xray" ]] || return 1
-  ensure_traffic_database || return 1
+  traffic_collect_fail() {
+    printf '%s\n' "$1" >"$TRAFFIC_ERROR_FILE" 2>/dev/null || true
+    chmod 600 "$TRAFFIC_ERROR_FILE" 2>/dev/null || true
+    exit 1
+  }
+  valid_port "$STATS_API_PORT" || traffic_collect_fail "统计 API 端口无效。"
+  command -v jq >/dev/null 2>&1 || traffic_collect_fail "系统缺少 jq。"
+  [[ -x "${BIN_DIR}/xray" ]] || traffic_collect_fail "缺少用于查询 Stats API 的 Xray 命令。"
+  ensure_traffic_database || traffic_collect_fail "无法初始化 SQLite 流量账本。"
   exec 9>"${DATA_DIR}/traffic.lock"
-  flock -w 10 9 || return 1
+  flock -w 10 9 || traffic_collect_fail "流量账本正忙。"
   chmod 600 "${DATA_DIR}/traffic.lock"
 
   pid="$(systemctl show "$SING_SERVICE" -p MainPID --value 2>/dev/null || true)"
-  [[ "$pid" =~ ^[1-9][0-9]*$ && -r "/proc/${pid}/stat" ]] || return 1
+  [[ "$pid" =~ ^[1-9][0-9]*$ && -r "/proc/${pid}/stat" ]] ||
+    traffic_collect_fail "代理核心未运行或无法读取进程信息。"
   actual_binary="$(readlink -f "/proc/${pid}/exe" 2>/dev/null || true)"
   actual_binary="${actual_binary% (deleted)}"
   case "${actual_binary##*/}" in
     sing-box) core_name="sing-box" ;;
     xray) core_name="xray" ;;
-    *) return 1 ;;
+    *) traffic_collect_fail "无法识别当前代理核心进程。" ;;
   esac
   start_time="$(awk '{print $22}' "/proc/${pid}/stat" 2>/dev/null || true)"
-  [[ "$start_time" =~ ^[0-9]+$ ]] || return 1
+  [[ "$start_time" =~ ^[0-9]+$ ]] || traffic_collect_fail "无法读取代理核心启动标识。"
   process_token="${pid}:${start_time}"
-  stats_json="$(timeout 10 "${BIN_DIR}/xray" api statsquery \
-    --server="127.0.0.1:${STATS_API_PORT}" 2>/dev/null)" || return 1
-  jq -e '(.stat // []) | type == "array"' >/dev/null 2>&1 <<<"$stats_json" || return 1
-  samples="$(jq -r '
-    .stat[]? |
-    select((.name | type) == "string" and (.value | type) == "number" and .value >= 0) |
-    select(.name | test("^(inbound|outbound)>>>[A-Za-z0-9_-]+>>>traffic>>>(uplink|downlink)$")) |
-    [.name, (.value | floor | tostring)] | @tsv
-  ' <<<"$stats_json")" || return 1
+
+  # 与 ArgoX 一致，优先读取运行配置中的 API 地址；若配置与实际监听错位，
+  # 再尝试项目缺省地址及当前核心进程持有的回环监听端口。
+  if [[ "$core_name" == "sing-box" ]]; then
+    api_address="$(jq -r '.experimental.v2ray_api.listen // empty' "$SING_BOX_CONFIG" 2>/dev/null || true)"
+  else
+    api_address="$(jq -r '.api.listen // empty' "$XRAY_CONFIG" 2>/dev/null || true)"
+  fi
+  stats_json=""
+  while IFS= read -r candidate; do
+    [[ "$candidate" =~ ^127\.0\.0\.1:[1-9][0-9]*$ ]] || continue
+    [[ "${seen_candidates:-}" == *"|${candidate}|"* ]] && continue
+    seen_candidates="${seen_candidates:-}|${candidate}|"
+    if query_output="$(timeout 10 "${BIN_DIR}/xray" api statsquery \
+      --server="$candidate" 2>/dev/null)" &&
+      jq -e '((.stat // []) | type) == "array"' >/dev/null 2>&1 <<<"$query_output"; then
+      stats_json="$query_output"
+      break
+    fi
+  done < <(
+    printf '%s\n' "$api_address" "127.0.0.1:${STATS_API_PORT}"
+    ss -H -ltnp 2>/dev/null |
+      awk -v pid="$pid" '$0 ~ ("pid=" pid ",") && $4 ~ /^127[.]0[.]0[.]1:[0-9]+$/ {print $4}'
+  )
+  [[ -n "$stats_json" ]] || traffic_collect_fail "Stats API 无响应，请检查当前核心配置与监听端口。"
+  samples="$(traffic_stats_samples <<<"$stats_json")" ||
+    traffic_collect_fail "Stats API 返回了无法解析的计数数据。"
 
   {
     printf '%s\n' 'BEGIN IMMEDIATE;'
@@ -1361,8 +1401,17 @@ INSERT INTO meta(key, value) VALUES('last_collect_at', datetime('now', 'localtim
 ON CONFLICT(key) DO UPDATE SET value = excluded.value;
 COMMIT;
 SQL
-  } | sqlite3 -batch "$TRAFFIC_DB" >/dev/null
+  } | sqlite3 -batch "$TRAFFIC_DB" >/dev/null || traffic_collect_fail "写入 SQLite 流量账本失败。"
+  rm -f "$TRAFFIC_ERROR_FILE"
 )
+
+ensure_traffic_timer_running() {
+  systemctl is-active --quiet "${TRAFFIC_TIMER}.timer" && return 0
+  [[ -f "/etc/systemd/system/${TRAFFIC_SERVICE}.service" &&
+    -f "/etc/systemd/system/${TRAFFIC_TIMER}.timer" ]] || return 1
+  systemctl daemon-reload >/dev/null 2>&1 &&
+    systemctl enable --now "${TRAFFIC_TIMER}.timer" >/dev/null 2>&1
+}
 
 traffic_reset() (
   local clear_baselines=0
@@ -1475,11 +1524,12 @@ show_traffic_tables() {
 }
 
 traffic_statistics_menu() {
-  local choice answer collected last_collect reset_at
+  local choice answer collected last_collect reset_at collect_error
   require_root
   [[ -f "$ENV_FILE" && -f "$NODES_CONFIG" ]] || die "${PROJECT_NAME} 尚未安装。"
   command -v sqlite3 >/dev/null 2>&1 && command -v jq >/dev/null 2>&1 ||
     die "缺少 jq 或 sqlite3，请执行项目安装更新依赖。"
+  ensure_traffic_timer_running || true
   while true; do
     load_env
     validate_nodes_config
@@ -1495,6 +1545,10 @@ traffic_statistics_menu() {
     key_value "统计起点" "${reset_at:-未知}"
     key_value "最近采集" "${last_collect:-尚未采集}"
     ((collected)) || yellow "当前核心计数暂不可读，以下显示已持久化数据。"
+    if ((!collected)) && [[ -s "$TRAFFIC_ERROR_FILE" ]]; then
+      collect_error="$(head -n 1 "$TRAFFIC_ERROR_FILE")"
+      key_value "失败原因" "$collect_error"
+    fi
     subsection "入站统计"
     show_traffic_tables
     section "统计操作"
